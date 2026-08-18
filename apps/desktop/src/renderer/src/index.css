@@ -1,0 +1,87 @@
+:root {
+  --helm-bg: #0d1017;
+  --helm-fg: #c5cad3;
+  --helm-dim: #5c6470;
+  --helm-accent: #6fb2ff;
+  --helm-warn: #f0707a;
+  --helm-titlebar-h: 38px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  background: var(--helm-bg);
+  overflow: hidden;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  color: var(--helm-fg);
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* hiddenInset leaves the traffic lights floating over the top-left, so the
+   bar doubles as their gutter and as the window drag region. */
+.titlebar {
+  -webkit-app-region: drag;
+  flex: 0 0 var(--helm-titlebar-h);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px 0 84px;
+  font-size: 12px;
+  border-bottom: 1px solid #1a1f2a;
+  user-select: none;
+}
+
+.titlebar__name {
+  color: var(--helm-dim);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.titlebar__cwd {
+  color: var(--helm-accent);
+  font-family: SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.titlebar__badge {
+  margin-left: auto;
+  color: var(--helm-warn);
+  font-size: 11px;
+}
+
+.terminal {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 6px 8px 4px 10px;
+}
+
+/* xterm sizes itself to this box; the viewport owns the scrolling. */
+.terminal .xterm {
+  height: 100%;
+}
+
+.terminal .xterm-viewport::-webkit-scrollbar {
+  width: 9px;
+}
+
+.terminal .xterm-viewport::-webkit-scrollbar-thumb {
+  background: #262d3a;
+  border-radius: 5px;
+}

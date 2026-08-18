@@ -1,3 +1,90 @@
 // Registers every IPC.* channel. One file so the full surface is auditable in
 // a single read. Each handler validates its payload before acting.
-export {};
+
+import { ipcMain, type BrowserWindow } from 'electron';
+import { spawnPty, type PtySession } from '@helm/shell';
+import { IPC, type SessionCreateOptions, type SessionInfo } from '@helm/shared';
+import type { HelmEnv } from './env.js';
+
+/**
+ * Phase 1 runs exactly one persistent shell. The map is keyed by session id
+ * anyway so Phase 5's multi-session work does not have to unpick this.
+ */
+const sessions = new Map<string, PtySession>();
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function readSize(value: unknown): { cols: number; rows: number } {
+  const cols = isRecord(value) && typeof value['cols'] === 'number' ? value['cols'] : 80;
+  const rows = isRecord(value) && typeof value['rows'] === 'number' ? value['rows'] : 24;
+  return {
+    cols: Number.isFinite(cols) && cols > 0 ? Math.floor(cols) : 80,
+    rows: Number.isFinite(rows) && rows > 0 ? Math.floor(rows) : 24,
+  };
+}
+
+/** node-pty wants a plain string map; process.env is sparse. */
+function cleanEnv(): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (typeof v === 'string') out[k] = v;
+  }
+  // Advertise ourselves so shell profiles can special-case Helm if wanted.
+  out['TERM'] = 'xterm-256color';
+  out['TERM_PROGRAM'] = 'Helm';
+  out['COLORTERM'] = 'truecolor';
+  return out;
+}
+
+export function killAllSessions(): void {
+  for (const session of sessions.values()) session.kill();
+  sessions.clear();
+}
+
+export function registerIpc(win: BrowserWindow, env: HelmEnv): void {
+  const send = (channel: string, payload: unknown): void => {
+    if (!win.isDestroyed()) win.webContents.send(channel, payload);
+  };
+
+  ipcMain.handle(IPC.SessionNew, (_event, raw: unknown): SessionInfo => {
+    // A respawn is just a new session; drop any previous one so a dead shell
+    // does not leak a pty.
+    killAllSessions();
+
+    const { cols, rows } = readSize(raw as SessionCreateOptions);
+    const session = spawnPty(
+      { shell: env.shell, cwd: env.homeRoot, env: cleanEnv(), cols, rows },
+      {
+        onData: (sessionId, data) => send(IPC.PtyData, { sessionId, data }),
+        onExit: (sessionId, code) => {
+          sessions.delete(sessionId);
+          send(IPC.PtyExit, { sessionId, code });
+        },
+      },
+    );
+
+    sessions.set(session.id, session);
+    return { id: session.id, shell: env.shell, cwd: session.cwd() };
+  });
+
+  ipcMain.on(IPC.PtyWrite, (_event, raw: unknown) => {
+    if (!isRecord(raw)) return;
+    const { sessionId, data } = raw;
+    if (typeof sessionId !== 'string' || typeof data !== 'string') return;
+    sessions.get(sessionId)?.write(data);
+  });
+
+  ipcMain.on(IPC.PtyResize, (_event, raw: unknown) => {
+    if (!isRecord(raw)) return;
+    const { sessionId } = raw;
+    if (typeof sessionId !== 'string') return;
+    const { cols, rows } = readSize(raw);
+    sessions.get(sessionId)?.resize(cols, rows);
+  });
+
+  ipcMain.handle(IPC.SessionList, (): SessionInfo[] =>
+    [...sessions.values()].map((s) => ({ id: s.id, shell: env.shell, cwd: s.cwd() })),
+  );
+}
