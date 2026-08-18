@@ -9,7 +9,8 @@
     "build": "electron-vite build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "package": "electron-vite build && electron-builder --mac --dir",
-    "dist": "electron-vite build && electron-builder --mac"
+    "dist": "electron-vite build && electron-builder --mac",
+    "lint": "eslint src"
   },
   "dependencies": {
     "@helm/engine": "workspace:*",
