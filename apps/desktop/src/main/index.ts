@@ -10,6 +10,13 @@ import { killAllSessions, registerIpc } from './ipc.js';
 /** Matches the renderer's --helm-bg so there is no white flash on show. */
 const BACKGROUND = '#0d1017';
 
+// Identity. Without this a dev run reports itself as "Electron" in the menu
+// bar, the Dock, and the About panel, because `electron .` launches the stock
+// binary and inherits its Info.plist. The packaged build takes its name from
+// electron-builder's productName, so this only matters for `pnpm dev` — but
+// "the menu bar says Electron" is a chrome defect either way.
+app.setName('Helm');
+
 const env = loadEnv(app.getAppPath());
 
 let mainWindow: BrowserWindow | null = null;
@@ -91,6 +98,13 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  app.setAboutPanelOptions({
+    applicationName: 'Helm',
+    applicationVersion: app.getVersion(),
+    version: '',
+    credits: 'A shell and the Claude agent loop behind one prompt.',
+  });
+
   buildMenu();
   createWindow();
 

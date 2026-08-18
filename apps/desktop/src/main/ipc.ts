@@ -35,7 +35,31 @@ function cleanEnv(): Record<string, string> {
   out['TERM'] = 'xterm-256color';
   out['TERM_PROGRAM'] = 'Helm';
   out['COLORTERM'] = 'truecolor';
+
+  // macOS does not put LANG in the environment of a GUI-launched app, and an
+  // unset LANG drops the shell into the C locale. Output still passes through,
+  // but zsh's line editor then renders typed multi-byte characters as raw
+  // bytes — accented filenames, emoji and box-drawing TUIs all break. A
+  // terminal launched from the Dock must not behave differently from one
+  // launched from a shell, so fill it in when the launcher did not.
+  if (!out['LANG'] && !out['LC_ALL'] && !out['LC_CTYPE']) {
+    out['LANG'] = `${systemLocale()}.UTF-8`;
+  }
   return out;
+}
+
+/** Best-effort POSIX locale name (`en_US`) from the runtime's own locale. */
+function systemLocale(): string {
+  try {
+    const tag = Intl.DateTimeFormat().resolvedOptions().locale;
+    const [language, region] = tag.split('-');
+    if (language && region && /^[a-z]{2,3}$/.test(language) && /^[A-Z]{2}$/.test(region)) {
+      return `${language}_${region}`;
+    }
+  } catch {
+    // Fall through to the default.
+  }
+  return 'en_US';
 }
 
 export function killAllSessions(): void {
