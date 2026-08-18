@@ -40,3 +40,29 @@ export interface PtyResize {
   cols: number;
   rows: number;
 }
+
+export interface PtyWrite {
+  sessionId: string;
+  data: string;
+}
+
+export interface PtyDataEvent {
+  sessionId: string;
+  data: string;
+}
+
+export interface PtyExitEvent {
+  sessionId: string;
+  code: number;
+}
+
+export interface SessionCreateOptions {
+  cols: number;
+  rows: number;
+}
+
+export interface SessionInfo {
+  id: string;
+  shell: string;
+  cwd: string;
+}
