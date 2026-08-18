@@ -3,7 +3,9 @@
   "private": true,
   "version": "0.0.0",
   "packageManager": "pnpm@9.12.0",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "pnpm --filter @helm/desktop dev",
     "build": "turbo run build",
@@ -11,7 +13,7 @@
     "lint": "turbo run lint",
     "package": "pnpm --filter @helm/desktop package",
     "sign:dev": "./scripts/sign-dev.sh",
-    "postinstall": "pnpm --filter @helm/desktop exec electron-builder install-app-deps"
+    "postinstall": "node scripts/postinstall.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.7.0",
