@@ -1,0 +1,22 @@
+{
+  "name": "helm",
+  "private": true,
+  "version": "0.0.0",
+  "packageManager": "pnpm@9.12.0",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "dev": "pnpm --filter @helm/desktop dev",
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "package": "pnpm --filter @helm/desktop package",
+    "sign:dev": "./scripts/sign-dev.sh",
+    "postinstall": "pnpm --filter @helm/desktop exec electron-builder install-app-deps"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.0",
+    "prettier": "^3.3.3",
+    "turbo": "^2.1.3",
+    "typescript": "^5.6.2"
+  }
+}

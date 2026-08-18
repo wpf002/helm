@@ -1,0 +1,140 @@
+# Helm
+
+A macOS terminal that runs both a real shell and the Claude agent loop behind a
+single prompt, scoped to the whole home directory.
+
+One input box. Lines that are shell commands go to a PTY. Lines that are
+questions go to the agent. Both render into the same scrollback in real time
+order, so `git status` and the agent's own `git status` land in one transcript
+rather than two.
+
+## Why this instead of `claude`
+
+The CLI is directory-scoped and single-surface. Anthropic's desktop app adds
+panes but keeps the chat and the terminal as separate things you switch between.
+Helm merges them and puts the permission layer under your own UI, so approval
+decisions show resolved paths and scope violations instead of a JSON blob.
+
+If you don't need those three things, use the CLI. It is better at everything
+else.
+
+## Architecture
+
+```
+apps/desktop        Electron shell — main, preload, renderer
+packages/shared     IPC contract and the StreamEvent union. No dependencies.
+packages/engine     Agent SDK wrapper. No Electron imports — runs from plain node.
+packages/shell      node-pty session manager. Main process only.
+```
+
+The renderer runs with `contextIsolation` on and reaches nothing directly. Every
+capability crosses the preload bridge or does not exist.
+`scripts/check-boundaries.sh` fails the build if that slips.
+
+`packages/engine` staying free of Electron is deliberate: it keeps the Phase 0
+auth probe and any later headless use from dragging the desktop app in, and it
+keeps the routing and scope logic unit-testable without spawning a window.
+
+### Input routing
+
+`routeInput()` decides shell vs agent. Explicit prefixes win — `$` forces shell,
+`?` forces agent. Otherwise a line whose first token resolves on PATH and which
+carries no sentence punctuation goes to the shell.
+
+Ties break toward the agent. A misrouted prompt wastes a turn; a misrouted shell
+command can be destructive.
+
+### Permissions
+
+The Agent SDK's `canUseTool` callback fires over IPC to the renderer. Before the
+prompt renders, `resolveAffectedPaths()` resolves symlinks and computes the
+absolute paths the call would touch, and flags anything outside the configured
+roots. Session-scoped "remember this" decisions are cleared on every new
+session — a grant must not outlive the window it was made in.
+
+`HELM_PERMISSION_MODE=off` exists. On a home-directory-wide agent it means every
+tool call runs unreviewed. Use it deliberately or not at all.
+
+## Setup
+
+```bash
+pnpm install
+cp .env.example .env
+```
+
+### Phase 0 — verify auth before building anything
+
+The SDK bundles its own Claude Code binary. Confirm your subscription
+credentials carry through rather than falling back to metered API billing:
+
+```bash
+claude                          # authenticate once if you haven't
+node scripts/probe-auth.mjs
+```
+
+Then check usage at console.anthropic.com. Zero new usage means the subscription
+carried. Nonzero means every keystroke is billed per token, and the economics of
+this app change enough to reconsider the build.
+
+### Run
+
+```bash
+pnpm dev
+```
+
+### Package
+
+```bash
+pnpm package
+pnpm sign:dev
+```
+
+## macOS specifics
+
+Full Disk Access is required or reads into Documents, Desktop, and Downloads
+fail. Grant it to the built `.app` under System Settings > Privacy & Security >
+Full Disk Access.
+
+**The grant is keyed to the code signature.** electron-builder signs ad-hoc by
+default, producing a new signature on every build, and macOS silently drops the
+grant each time. `pnpm sign:dev` signs with a stable self-signed identity so the
+grant survives. Create the identity once — instructions are at the top of
+`scripts/sign-dev.sh`.
+
+`node-pty` is native and must be rebuilt against Electron's ABI. The root
+`postinstall` runs `electron-builder install-app-deps` for this. A
+`NODE_MODULE_VERSION` mismatch at startup means that step didn't run.
+
+## Roadmap
+
+Each phase ends in something usable. Stop at any of them.
+
+**Phase 1 — terminal.** xterm.js over node-pty, OSC 7 cwd tracking, resize,
+window chrome. No agent. Ship point: a terminal you'd actually use.
+Kill gate: if you don't prefer it to iTerm, the rest doesn't matter.
+
+**Phase 2 — agent, single surface.** Agent SDK wired into the same scroll
+container. Explicit `$`/`?` prefixes only, no inference. Permission prompts are
+raw JSON.
+Kill gate: unified scrollback has to beat two windows. If it doesn't, you've
+rebuilt the desktop app worse.
+
+**Phase 3 — routing.** `routeInput()` with PATH scanning. Log every decision
+with the rule that fired.
+Kill gate: measure misroute rate over a week of real use. Above 5% and the
+inference is a liability — fall back to Phase 2 prefixes permanently.
+
+**Phase 4 — scope UI.** `resolveAffectedPaths()`, symlink resolution,
+out-of-scope flagging, session-scoped persistence.
+Kill gate: this is the one feature the official app doesn't have. If it doesn't
+change how you approve things, the project's differentiator was imaginary.
+
+**Phase 5 — sessions.** Multiple concurrent sessions, transcript persistence,
+resume. Only worth it if Phases 1–4 survived.
+
+## Conventions
+
+- No LLM output on any control path. The agent narrates and edits; routing,
+  scope resolution, and permission decisions are deterministic code.
+- `packages/shared` has zero dependencies and stays that way.
+- New `StreamEvent` kinds must fail the renderer typecheck, not render blank.

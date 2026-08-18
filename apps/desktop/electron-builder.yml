@@ -1,0 +1,24 @@
+appId: com.wpf002.helm
+productName: Helm
+directories:
+  output: release
+  buildResources: build
+files:
+  - out/**
+  - package.json
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - dir
+  # Hardened runtime OFF for local dev. Turning it on requires a Developer ID
+  # cert and notarization, and it will re-key your Full Disk Access grant.
+  hardenedRuntime: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  extendInfo:
+    NSAppleEventsUsageDescription: Helm runs shell commands on your behalf.
+    NSDesktopFolderUsageDescription: Helm reads and edits files you point it at.
+    NSDocumentsFolderUsageDescription: Helm reads and edits files you point it at.
+    NSDownloadsFolderUsageDescription: Helm reads and edits files you point it at.
+asarUnpack:
+  - '**/node_modules/node-pty/**'
