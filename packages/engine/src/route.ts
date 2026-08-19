@@ -52,13 +52,35 @@ function shellSyntax(line: string, tokens: readonly string[]): string[] {
   if (/[|;]|&&|\|\|/.test(line)) seen.push('operator');
   if (/(^|\s)[<>]|>>/.test(line)) seen.push('redirect');
   if (/(^|\s)(\.{1,2}\/|\/|~\/)/.test(line)) seen.push('path');
+  if (tokens.slice(1).some((tok) => tok === '.' || tok === '..')) seen.push('path');
+  // Bare numbers are arguments — `seq 1 10` — not English.
+  if (tokens.slice(1).some((tok) => /^-?\d+$/.test(tok))) seen.push('numeric-arg');
   if (/\$\{?[A-Za-z_]/.test(line)) seen.push('variable');
   if (/[*?[\]]/.test(line) && tokens.length > 1) seen.push('glob');
   if (/`|\$\(/.test(line)) seen.push('substitution');
   if (/[A-Za-z0-9._-]+=[^\s]/.test(line)) seen.push('assignment');
   if (/(^|\s)['"]/.test(line)) seen.push('quoted');
+  // `touch .gitkeep`, `cat package.json`: a dotted or dotfile argument is a
+  // filename, which prose does not carry.
+  if (tokens.slice(1).some((tok) => /^\.[\w-]+$/.test(tok) || /^[\w.-]+\.[a-z0-9]{1,6}$/i.test(tok))) {
+    seen.push('filename');
+  }
   return seen;
 }
+
+/**
+ * Heads that are ordinary English verbs *and* real binaries. `install`,
+ * `write` and `say` all exist in /usr/bin, so "install dependencies" resolved
+ * and ran as a command when it was plainly a request. These need corroborating
+ * shell evidence before they count as commands.
+ */
+const AMBIGUOUS_HEADS = new Set([
+  'install', 'write', 'read', 'look', 'say', 'find', 'sort', 'clear', 'test',
+  'head', 'tail', 'kill', 'link', 'join', 'expand', 'view', 'print', 'touch',
+  'page', 'script', 'patch', 'last', 'mail', 'man', 'line',
+  'which', 'open', 'check', 'apply', 'send', 'split', 'help',
+  'what', 'where', 'when',
+]);
 
 /**
  * Blanks quoted spans. Text inside quotes is an argument, not grammar:
@@ -148,6 +170,25 @@ export function routeInputWithFactors(
       detail: `"${first}" is not a shell builtin and does not resolve on PATH.`,
       effect: 'info',
     });
+
+    // An uninstalled tool still reads as a command: `cargo build --release`
+    // with cargo absent should say "command not found" instantly and for free,
+    // not spend an agent turn arriving at the same answer. Prose still wins.
+    const unknownProse = withoutQuoted(trimmed)
+      .split(/\s+/)
+      .slice(1)
+      .filter((word) => word.length > 1 && PROSE_MARKERS.has(word.toLowerCase()));
+    const unknownSyntax = shellSyntax(trimmed, tokens).filter((s) =>
+      ['flag', 'path', 'operator', 'redirect', 'filename', 'substitution'].includes(s),
+    );
+    if (unknownProse.length === 0 && sentencePunctuation(withoutQuoted(trimmed)).length === 0 && unknownSyntax.length > 0) {
+      factors.push({
+        rule: 'unknown-but-command-shaped',
+        detail: `Carries ${unknownSyntax.join(', ')}; the shell reports a missing command for free.`,
+        effect: 'info',
+      });
+      return { route: { target: 'shell', command: trimmed }, factors };
+    }
     return { route: { target: 'agent', prompt: trimmed }, factors };
   }
 
@@ -176,10 +217,12 @@ export function routeInputWithFactors(
   }
 
   const punctuation = sentencePunctuation(withoutQuoted(trimmed));
+  // Single-character tokens are arguments, not articles: `ln -s a b` was read
+  // as prose because "a" is an English article.
   const prose = withoutQuoted(trimmed)
     .split(/\s+/)
     .slice(commandIndex + 1)
-    .filter((word) => PROSE_MARKERS.has(word.toLowerCase()));
+    .filter((word) => word.length > 1 && PROSE_MARKERS.has(word.toLowerCase()));
   const syntax = shellSyntax(trimmed, tokens);
 
   if (syntax.length > 0) {
@@ -223,6 +266,28 @@ export function routeInputWithFactors(
       effect: 'info',
     });
     return { route: { target: 'agent', prompt: trimmed }, factors };
+  }
+
+  // An English-word binary with nothing to corroborate it is a request, not a
+  // command. `which node` still routes to the shell because its argument is
+  // itself a known command; `which file handles routing` does not.
+  if (AMBIGUOUS_HEADS.has(first) && syntax.length === 0 && tokens.length > 1) {
+    const second = tokens[1] ?? '';
+    const secondIsCommand =
+      tokens.length === 2 && (pathBinaries.has(second) || SHELL_BUILTINS.has(second));
+    if (!secondIsCommand) {
+      factors.push({
+        rule: 'ambiguous-head-uncorroborated',
+        detail: `"${first}" is an ordinary English word as well as a binary, and nothing else here reads as shell.`,
+        effect: 'info',
+      });
+      return { route: { target: 'agent', prompt: trimmed }, factors };
+    }
+    factors.push({
+      rule: 'ambiguous-head-corroborated',
+      detail: `"${second}" is itself a command, so "${first}" reads as one too.`,
+      effect: 'info',
+    });
   }
 
   // The first token resolves, nothing reads as a sentence, and no function

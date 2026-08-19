@@ -95,7 +95,11 @@ if [[ -n "$ZSH_VERSION" ]] && [[ -z "$_HELM_VOCAB_LOADED" ]]; then
         print -r -- ${(k)functions}
         print -r -- ${(k)aliases}
         print -r -- ${(k)commands}
-      } 2>/dev/null | tr ' ' '\n' | sort -u | tr '\n' ' '
+        # The command names you have actually run. This is what teaches routing
+        # about tools that are not installed here yet, and about anything else
+        # a PATH scan cannot see.
+        fc -l -n 1 2>/dev/null | awk '{print $1}'
+      } 2>/dev/null | tr ' ' '\n' | sed 's/[;|&].*$//' | sort -u | tr '\n' ' '
     )
     [[ -z "$words" ]] && return
     printf '\e]7376;%s\a' "$(printf '%s' "$words" | base64 | tr -d '\n')"
