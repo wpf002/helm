@@ -52,3 +52,76 @@ console.log(
     ? `[postinstall] fixed ${fixed} spawn-helper binary(ies)`
     : '[postinstall] spawn-helper already executable',
 );
+
+// ---------------------------------------------------------------------------
+// Brand the dev Electron binary.
+//
+// `pnpm dev` launches node_modules/electron/dist/Electron.app directly, and the
+// Dock reads that bundle's Info.plist — so the tile says "Electron" and wears
+// Electron's icon no matter what app.setName() does at runtime. The packaged
+// build has its own bundle and is unaffected. Rewriting the dev bundle's name
+// and icon is the only way to make a dev run identify as Helm.
+//
+// Editing the bundle invalidates its signature, so it is re-signed ad-hoc
+// afterwards or macOS refuses to launch it.
+
+import { execFileSync } from 'node:child_process';
+import { copyFileSync, writeFileSync } from 'node:fs';
+
+if (process.platform === 'darwin') {
+  const electronApp = join(
+    process.cwd(),
+    'node_modules/electron/dist/Electron.app',
+  );
+  const plist = join(electronApp, 'Contents/Info.plist');
+  const iconSrc = join(process.cwd(), 'apps/desktop/build/icon.icns');
+  const iconDest = join(electronApp, 'Contents/Resources/electron.icns');
+
+  if (existsSync(plist)) {
+    try {
+      const current = execFileSync('/usr/libexec/PlistBuddy', ['-c', 'Print :CFBundleName', plist], {
+        encoding: 'utf8',
+      }).trim();
+
+      if (current !== 'Helm') {
+        for (const key of ['CFBundleName', 'CFBundleDisplayName']) {
+          try {
+            execFileSync('/usr/libexec/PlistBuddy', ['-c', `Set :${key} Helm`, plist]);
+          } catch {
+            execFileSync('/usr/libexec/PlistBuddy', ['-c', `Add :${key} string Helm`, plist]);
+          }
+        }
+        if (existsSync(iconSrc)) copyFileSync(iconSrc, iconDest);
+
+        // The Dock and Activity Monitor take the process name from the
+        // executable's filename, so LSDisplayName alone still leaves a dev run
+        // showing "Electron". Add a Helm-named copy of the launcher (it is a
+        // small stub; the frameworks hold the weight), point the bundle and
+        // the electron package's path.txt at it, and leave the original in
+        // place so electron-builder can still find Electron.app when packaging.
+        const macOs = join(electronApp, 'Contents/MacOS');
+        copyFileSync(join(macOs, 'Electron'), join(macOs, 'Helm'));
+        chmodSync(join(macOs, 'Helm'), 0o755);
+        try {
+          execFileSync('/usr/libexec/PlistBuddy', ['-c', 'Set :CFBundleExecutable Helm', plist]);
+        } catch {
+          /* key always exists in Electron's plist */
+        }
+        writeFileSync(
+          join(process.cwd(), 'node_modules/electron/path.txt'),
+          'Electron.app/Contents/MacOS/Helm',
+        );
+
+        // Re-sign: the edits above break the existing signature.
+        execFileSync('codesign', ['--force', '--sign', '-', electronApp], { stdio: 'ignore' });
+        console.log('[postinstall] branded the dev Electron bundle as Helm');
+      } else {
+        if (existsSync(iconSrc)) copyFileSync(iconSrc, iconDest);
+        console.log('[postinstall] dev Electron bundle already branded');
+      }
+    } catch (error) {
+      // Never fail an install over cosmetics.
+      console.log(`[postinstall] could not brand dev bundle: ${String(error).split('\n')[0]}`);
+    }
+  }
+}

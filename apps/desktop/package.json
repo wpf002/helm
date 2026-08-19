@@ -13,22 +13,28 @@
     "lint": "eslint src"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.191",
+    "node-pty": "^1.0.0"
+  },
+  "devDependencies": {
     "@helm/engine": "workspace:*",
     "@helm/shared": "workspace:*",
     "@helm/shell": "workspace:*",
-    "@xterm/addon-fit": "^0.10.0",
-    "@xterm/addon-web-links": "^0.11.0",
-    "@xterm/xterm": "^5.5.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
-  },
-  "devDependencies": {
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.2",
-    "electron": "^32.1.2",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/addon-web-links": "^0.11.0",
+    "@xterm/xterm": "^5.5.0",
+    "electron": "32.3.3",
     "electron-builder": "^25.1.7",
     "electron-vite": "^2.3.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "vite": "^5.4.8"
+  },
+  "description": "A terminal that runs a shell and the Claude agent loop behind one prompt.",
+  "author": {
+    "name": "Will Foti"
   }
 }
