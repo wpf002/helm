@@ -2,7 +2,7 @@
 // references to @helm/engine and @helm/shell. Nothing below src/renderer may
 // import either package — enforced by the boundary check in scripts/.
 
-import { app, BrowserWindow, Menu, nativeTheme, shell } from 'electron';
+import { app, BrowserWindow, Menu, nativeImage, nativeTheme, shell } from 'electron';
 import { join } from 'node:path';
 import { loadEnv } from './env.js';
 import { disposeAgent, killAllSessions, registerIpc } from './ipc.js';
@@ -16,6 +16,15 @@ const BACKGROUND = '#0d1017';
 // electron-builder's productName, so this only matters for `pnpm dev` — but
 // "the menu bar says Electron" is a chrome defect either way.
 app.setName('Helm');
+
+// A terminal that stops repainting because another window covers it is a
+// terminal that lies about what the shell has printed. macOS occlusion
+// detection marks a covered window hidden and Chromium then throttles the
+// renderer, so output only appears once you look at it again. Keep the
+// renderer scheduled regardless.
+app.commandLine.appendSwitch('disable-features', 'MacWebContentsOcclusion');
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
 
 const env = loadEnv(app.getAppPath());
 
@@ -98,6 +107,15 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  // Packaged builds take the icon from the bundle's Info.plist. A dev run
+  // launches the stock Electron binary and would otherwise sit in the Dock
+  // wearing Electron's icon, which is exactly the "it's just Electron"
+  // problem — so set it explicitly.
+  if (!app.isPackaged && app.dock) {
+    const icon = nativeImage.createFromPath(join(app.getAppPath(), 'build', 'icon.png'));
+    if (!icon.isEmpty()) app.dock.setIcon(icon);
+  }
+
   app.setAboutPanelOptions({
     applicationName: 'Helm',
     applicationVersion: app.getVersion(),
