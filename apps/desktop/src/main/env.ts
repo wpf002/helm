@@ -60,6 +60,15 @@ export function loadEnv(startDir: string): HelmEnv {
   const envFile = findEnvFile(startDir);
   const fromFile = envFile ? parseEnvFile(readFileSync(envFile, 'utf8')) : {};
 
+  // Publish the file's values into the real environment. The agent SDK runs as
+  // a child process and reads credentials from its own environment, so a key
+  // that only exists in this object never reaches it — the agent then falls
+  // back to whatever stale OAuth record is on the machine and fails to
+  // authenticate. Real environment variables still win.
+  for (const [key, value] of Object.entries(fromFile)) {
+    if (process.env[key] === undefined) process.env[key] = value;
+  }
+
   const read = (key: string): string | undefined => process.env[key] ?? fromFile[key];
 
   const rawMode = read('HELM_PERMISSION_MODE');

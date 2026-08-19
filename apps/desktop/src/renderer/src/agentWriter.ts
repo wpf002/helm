@@ -61,11 +61,12 @@ export class AgentWriter {
     }
   }
 
-  /** Echoes the prompt the user just submitted so the scroll reads as a log. */
-  echoPrompt(text: string): void {
+  /**
+   * Marks the start of a turn. The compose line has already echoed the prompt
+   * as it was typed, so re-rendering it here would print it twice.
+   */
+  beginTurn(): void {
     this.closeLine();
-    this.raw(`${GUTTER}${sgr('38;5;110')}${sgr('1')}${text}${RESET}\r\n`);
-    this.atLineStart = true;
     this.streaming = true;
   }
 

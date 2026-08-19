@@ -165,7 +165,7 @@ export default function App(): JSX.Element {
         term.write('\r\n');
         return;
       }
-      writer.echoPrompt(text);
+      writer.beginTurn();
       setBusy(true);
       window.helm.agent.prompt(text);
     };
