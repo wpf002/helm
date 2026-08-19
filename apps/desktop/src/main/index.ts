@@ -2,7 +2,7 @@
 // references to @helm/engine and @helm/shell. Nothing below src/renderer may
 // import either package — enforced by the boundary check in scripts/.
 
-import { app, BrowserWindow, Menu, nativeImage, nativeTheme, shell } from 'electron';
+import { app, BrowserWindow, globalShortcut, Menu, nativeImage, nativeTheme, shell } from 'electron';
 import { join } from 'node:path';
 import { loadEnv } from './env.js';
 import { disposeAgent, killAllSessions, registerIpc } from './ipc.js';
@@ -31,6 +31,29 @@ const env = loadEnv(app.getAppPath());
 let mainWindow: BrowserWindow | null = null;
 
 /**
+ * Closing the window hides it rather than quitting. A terminal you have to
+ * cold-start is not "always available" — the shell keeps running behind the
+ * hidden window, so Cmd+Shift+H brings back the session you left, scrollback
+ * and all. Only an explicit quit tears anything down.
+ */
+let isQuitting = false;
+
+const HOTKEY = 'CommandOrControl+Shift+H';
+
+function toggleWindow(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createWindow();
+    return;
+  }
+  if (mainWindow.isVisible() && mainWindow.isFocused()) {
+    mainWindow.hide();
+  } else {
+    mainWindow.show();
+    mainWindow.focus();
+  }
+}
+
+/**
  * A terminal without Cmd+C / Cmd+V is not a terminal, so the menu is trimmed
  * rather than removed. Everything that would only add clutter is gone.
  */
@@ -57,7 +80,12 @@ function buildMenu(): void {
       },
       {
         label: 'View',
-        submenu: [{ role: 'togglefullscreen' }, { role: 'toggleDevTools' }],
+        submenu: [
+          { role: 'togglefullscreen' },
+          { role: 'toggleDevTools' },
+          { type: 'separator' },
+          { label: 'Hide Helm', accelerator: HOTKEY, click: toggleWindow },
+        ],
       },
       { role: 'windowMenu' },
     ]),
@@ -86,6 +114,15 @@ function createWindow(): void {
   });
 
   mainWindow.on('ready-to-show', () => mainWindow?.show());
+
+  mainWindow.on('close', (event) => {
+    // Hide instead of closing, unless the user is genuinely quitting.
+    if (!isQuitting && mainWindow && !mainWindow.isDestroyed()) {
+      event.preventDefault();
+      mainWindow.hide();
+    }
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
@@ -126,21 +163,34 @@ app.whenReady().then(() => {
   buildMenu();
   createWindow();
 
+  if (!globalShortcut.register(HOTKEY, toggleWindow)) {
+    // Another app owns it. Say so rather than failing silently — the menu item
+    // still works.
+    console.error(`[helm] could not register ${HOTKEY}; it is already taken.`);
+  }
+
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (!mainWindow || mainWindow.isDestroyed()) createWindow();
+    else mainWindow.show();
   });
 });
 
-// Phase 5 keeps the app alive in the Dock. Until then, closing the window
-// quits, which is what a terminal is expected to do.
+// The app stays resident on macOS: the window hides, the shell keeps running,
+// and the Dock icon is how you get back to it.
 app.on('window-all-closed', () => {
-  killAllSessions();
-  void disposeAgent();
-  if (process.platform !== 'darwin') app.quit();
-  else app.quit();
+  if (process.platform !== 'darwin') {
+    killAllSessions();
+    void disposeAgent();
+    app.quit();
+  }
 });
 
 app.on('before-quit', () => {
+  isQuitting = true;
   killAllSessions();
   void disposeAgent();
+});
+
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll();
 });
