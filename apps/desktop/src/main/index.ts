@@ -133,7 +133,6 @@ function createWindow(): void {
     return { action: 'deny' };
   });
 
-  registerIpc(mainWindow, env);
 
   const devUrl = process.env['ELECTRON_RENDERER_URL'];
   if (devUrl) {
@@ -161,6 +160,8 @@ app.whenReady().then(() => {
   });
 
   buildMenu();
+  // Once for the app, before any window exists.
+  registerIpc(() => mainWindow, env);
   createWindow();
 
   if (!globalShortcut.register(HOTKEY, toggleWindow)) {

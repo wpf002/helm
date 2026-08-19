@@ -8,6 +8,16 @@ import { IPC, type InputRoute, type SessionCreateOptions, type SessionInfo } fro
 import type { HelmEnv } from './env.js';
 import { clearPermissionState, requestPermission, resolvePermission } from './permissions.js';
 import { logRouting, recordFor } from './routing-log.js';
+import {
+  closeAllTranscripts,
+  closeTranscript,
+  listTranscripts,
+  openTranscript,
+  pruneTranscripts,
+  readTranscript,
+  recordAgent,
+  recordPty,
+} from './transcript.js';
 
 /**
  * Phase 1 runs exactly one persistent shell. The map is keyed by session id
@@ -75,9 +85,13 @@ let agentStarting: Promise<AgentSession | null> | null = null;
 /** Tool name by request id, so a session-scoped grant knows what it granted. */
 const requestTools = new Map<string, string>();
 
+/** Which session agent output is attributed to. Set by the renderer. */
+let activeSessionId: string | null = null;
+
 export function killAllSessions(): void {
   for (const session of sessions.values()) session.kill();
   sessions.clear();
+  closeAllTranscripts();
 }
 
 export async function disposeAgent(): Promise<void> {
@@ -103,32 +117,68 @@ void scanPathBinaries()
     // agent — the safe direction.
   });
 
-export function registerIpc(win: BrowserWindow, env: HelmEnv): void {
+/**
+ * Registered once for the app, never per window. Residency means the window can
+ * be destroyed and recreated, and ipcMain.handle throws on a second
+ * registration for the same channel — which crashed the app on reactivate.
+ * Handlers resolve the current window through the getter instead of closing
+ * over one instance.
+ */
+let ipcRegistered = false;
+
+export function registerIpc(getWindow: () => BrowserWindow | null, env: HelmEnv): void {
+  if (ipcRegistered) return;
+  ipcRegistered = true;
+
   const send = (channel: string, payload: unknown): void => {
-    if (!win.isDestroyed()) win.webContents.send(channel, payload);
+    const win = getWindow();
+    if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
   };
 
-  ipcMain.handle(IPC.SessionNew, (_event, raw: unknown): SessionInfo => {
-    // A respawn is just a new session; drop any previous one so a dead shell
-    // does not leak a pty. Session-scoped permission grants die with it —
-    // a remembered "allow" must not outlive the session that granted it.
-    killAllSessions();
-    clearPermissionState();
-
+  ipcMain.handle(IPC.SessionNew, async (_event, raw: unknown): Promise<SessionInfo> => {
     const { cols, rows } = readSize(raw as SessionCreateOptions);
     const session = spawnPty(
       { shell: env.shell, cwd: env.homeRoot, env: cleanEnv(), cols, rows },
       {
-        onData: (sessionId, data) => send(IPC.PtyData, { sessionId, data }),
+        onData: (sessionId, data) => {
+          recordPty(sessionId, data);
+          send(IPC.PtyData, { sessionId, data });
+        },
         onExit: (sessionId, code) => {
           sessions.delete(sessionId);
+          closeTranscript(sessionId);
           send(IPC.PtyExit, { sessionId, code });
         },
       },
     );
 
     sessions.set(session.id, session);
-    return { id: session.id, shell: env.shell, cwd: session.cwd(), permissionMode: env.permissionMode };
+    await openTranscript(session.id);
+    void pruneTranscripts();
+    return {
+      id: session.id,
+      shell: env.shell,
+      cwd: session.cwd(),
+      permissionMode: env.permissionMode,
+    };
+  });
+
+  ipcMain.handle(IPC.SessionClose, (_event, raw: unknown): boolean => {
+    if (typeof raw !== 'string') return false;
+    const session = sessions.get(raw);
+    if (!session) return false;
+    session.kill();
+    sessions.delete(raw);
+    closeTranscript(raw);
+    // A session-scoped grant dies with the session that granted it.
+    clearPermissionState();
+    return true;
+  });
+
+  ipcMain.handle(IPC.SessionTranscript, async (_event, raw: unknown) => {
+    if (raw === undefined || raw === null) return listTranscripts();
+    if (typeof raw !== 'string') return [];
+    return readTranscript(raw);
   });
 
   ipcMain.on(IPC.PtyWrite, (_event, raw: unknown) => {
@@ -136,6 +186,10 @@ export function registerIpc(win: BrowserWindow, env: HelmEnv): void {
     const { sessionId, data } = raw;
     if (typeof sessionId !== 'string' || typeof data !== 'string') return;
     sessions.get(sessionId)?.write(data);
+  });
+
+  ipcMain.on(IPC.SessionActivate, (_event, raw: unknown) => {
+    if (typeof raw === 'string') activeSessionId = raw;
   });
 
   ipcMain.on(IPC.PtyResize, (_event, raw: unknown) => {
@@ -168,8 +222,18 @@ export function registerIpc(win: BrowserWindow, env: HelmEnv): void {
         ...(env.model ? { model: env.model } : {}),
       },
       {
-        onEvent: (event) => send(IPC.AgentStream, event),
+        onEvent: (event) => {
+          // Agent output belongs to whichever session is in front when it
+          // arrives; the renderer routes it, and the transcript follows.
+          if (activeSessionId) recordAgent(activeSessionId, event);
+          send(IPC.AgentStream, event);
+        },
         requestPermission: async (request) => {
+          const win = getWindow();
+          if (!win || win.isDestroyed()) {
+            // Fail closed: with no window there is nobody to approve.
+            return { id: request.id, behavior: 'deny', persist: false, reason: 'No window.' };
+          }
           requestTools.set(request.id, request.toolName);
           const decision = await requestPermission(win, request);
           requestTools.delete(request.id);
