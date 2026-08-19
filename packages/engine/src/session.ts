@@ -183,9 +183,27 @@ export async function createSession(
 
   const roots = [config.homeRoot, ...config.extraRoots];
 
-  /** Deterministic scope check, then the user. No model on this path. */
+  /**
+   * Deterministic scope check, then the user. No model on this path.
+   *
+   * In 'auto' mode the scope verdict itself is the approval: a call whose
+   * resolved paths all sit inside the configured roots proceeds without
+   * asking, and anything out of scope — including a call whose paths could not
+   * be resolved — still stops for a decision. That is the whole point of the
+   * mode: it trades prompts for containment, not for trust.
+   */
   const ask = async (toolName: string, input: unknown): Promise<PermissionDecision> => {
     const verdict = await evaluateScope(toolName, input, config.homeRoot, roots);
+
+    if (config.permissionMode === 'auto' && !verdict.outOfScope) {
+      return {
+        id: randomUUID(),
+        behavior: 'allow',
+        persist: false,
+        reason: 'auto: every resolved path is within your roots',
+      };
+    }
+
     return callbacks.requestPermission({
       id: randomUUID(),
       toolName,
