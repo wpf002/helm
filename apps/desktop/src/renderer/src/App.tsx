@@ -9,6 +9,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import type { PermissionRequest } from '@helm/shared';
 import { AgentWriter } from './agentWriter';
+import { PermissionOverlay } from './PermissionOverlay';
 
 const THEME = {
   background: '#0d1017',
@@ -59,6 +60,10 @@ export default function App(): JSX.Element {
   const [cwd, setCwd] = useState('');
   const [exitCode, setExitCode] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
+  // Mirrored into permissionRef so the input handler can read it synchronously.
+  const [pendingPermission, setPendingPermission] = useState<PermissionRequest | null>(null);
+  const [permissionMode, setPermissionMode] = useState<'off' | 'prompt' | 'auto'>('prompt');
+  const decideRef = useRef<((behavior: 'allow' | 'deny', persist: boolean) => void) | null>(null);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -114,6 +119,7 @@ export default function App(): JSX.Element {
       if (disposed) return;
       sessionRef.current = info.id;
       homeRef.current = info.cwd;
+      setPermissionMode(info.permissionMode);
       exitedRef.current = false;
       atLineStartRef.current = true;
       setExitCode(null);
@@ -136,25 +142,26 @@ export default function App(): JSX.Element {
       const request = permissionRef.current;
       if (!request) return;
       permissionRef.current = null;
+      setPendingPermission(null);
       window.helm.agent.resolvePermission({ id: request.id, behavior, persist });
+      // Keep a trace in the scrollback: the decision belongs in the log too.
+      const scope = request.outOfScope ? ' [out of scope]' : '';
       term.write(
-        `${ESC}[38;5;68m│ ${ESC}[38;5;242m  ${behavior}${persist ? ' (session)' : ''}${ESC}[0m\r\n`,
+        `${ESC}[38;5;68m│ ${ESC}[38;5;242m${behavior}${persist ? ' (session)' : ''}` +
+          ` ${request.toolName}${scope}${ESC}[0m\r\n`,
       );
+      term.focus();
     };
+    decideRef.current = answerPermission;
 
     const offPermission = window.helm.agent.onPermissionRequest((request) => {
       permissionRef.current = request;
-      // Phase 2 shows raw JSON deliberately; Phase 4 replaces this with the
-      // resolved-path overlay, which is the feature this app exists for.
-      const json = JSON.stringify(request.input, null, 2);
+      setPendingPermission(request);
+      // A one-line marker keeps the scrollback honest about what was asked;
+      // the detail lives in the overlay.
       term.write(
-        `\r\n${ESC}[38;5;68m│ ${ESC}[38;5;215mpermission: ${request.toolName}${ESC}[0m\r\n`,
-      );
-      for (const line of json.split('\n').slice(0, 20)) {
-        term.write(`${ESC}[38;5;68m│ ${ESC}[38;5;242m${line}${ESC}[0m\r\n`);
-      }
-      term.write(
-        `${ESC}[38;5;68m│ ${ESC}[38;5;215m[y] allow  [a] allow for session  [n] deny${ESC}[0m\r\n`,
+        `\r\n${ESC}[38;5;68m│ ${ESC}[38;5;215mpermission: ${request.toolName}` +
+          `${request.outOfScope ? ' — outside your roots' : ''}${ESC}[0m\r\n`,
       );
     });
 
@@ -306,13 +313,22 @@ export default function App(): JSX.Element {
 
   return (
     <div className="app">
-      <header className="titlebar">
+      <header className={`titlebar${permissionMode === 'off' ? ' titlebar--unguarded' : ''}`}>
         <span className="titlebar__name">Helm</span>
+        {permissionMode === 'off' && (
+          <span className="titlebar__unguarded">approvals off — every tool call runs</span>
+        )}
         {cwd && <span className="titlebar__cwd">{displayCwd(cwd, homeRef.current)}</span>}
         {busy && <span className="titlebar__busy">agent working — ^C to stop</span>}
         {exitCode !== null && <span className="titlebar__badge">shell exited ({exitCode})</span>}
       </header>
       <div className="terminal" ref={hostRef} />
+      {pendingPermission && (
+        <PermissionOverlay
+          request={pendingPermission}
+          onDecide={(behavior, persist) => decideRef.current?.(behavior, persist)}
+        />
+      )}
     </div>
   );
 }

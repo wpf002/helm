@@ -95,8 +95,10 @@ export function registerIpc(win: BrowserWindow, env: HelmEnv): void {
 
   ipcMain.handle(IPC.SessionNew, (_event, raw: unknown): SessionInfo => {
     // A respawn is just a new session; drop any previous one so a dead shell
-    // does not leak a pty.
+    // does not leak a pty. Session-scoped permission grants die with it —
+    // a remembered "allow" must not outlive the session that granted it.
     killAllSessions();
+    clearPermissionState();
 
     const { cols, rows } = readSize(raw as SessionCreateOptions);
     const session = spawnPty(
@@ -111,7 +113,7 @@ export function registerIpc(win: BrowserWindow, env: HelmEnv): void {
     );
 
     sessions.set(session.id, session);
-    return { id: session.id, shell: env.shell, cwd: session.cwd() };
+    return { id: session.id, shell: env.shell, cwd: session.cwd(), permissionMode: env.permissionMode };
   });
 
   ipcMain.on(IPC.PtyWrite, (_event, raw: unknown) => {
@@ -130,7 +132,12 @@ export function registerIpc(win: BrowserWindow, env: HelmEnv): void {
   });
 
   ipcMain.handle(IPC.SessionList, (): SessionInfo[] =>
-    [...sessions.values()].map((s) => ({ id: s.id, shell: env.shell, cwd: s.cwd() })),
+    [...sessions.values()].map((s) => ({
+      id: s.id,
+      shell: env.shell,
+      cwd: s.cwd(),
+      permissionMode: env.permissionMode,
+    })),
   );
 
   /** Creates the agent on first use. Cheap: the SDK subprocess spawns lazily. */
