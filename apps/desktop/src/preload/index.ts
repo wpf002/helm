@@ -15,6 +15,7 @@ import {
   type SessionInfo,
   type StreamEvent,
   type InputRoute,
+  type TranscriptEntry,
 } from '@helm/shared';
 
 /** Every listener hands back its own unsubscribe so React effects stay clean. */
@@ -69,6 +70,21 @@ const api = {
     resolvePermission: (decision: PermissionDecision): void => {
       ipcRenderer.send(IPC.PermissionResolve, decision);
     },
+  },
+
+  session: {
+    close: (id: string): Promise<boolean> => ipcRenderer.invoke(IPC.SessionClose, id),
+    /** Marks which session agent output and transcripts belong to. */
+    activate: (id: string): void => {
+      ipcRenderer.send(IPC.SessionActivate, id);
+    },
+    transcripts: (): Promise<Array<{ id: string; mtime: number; bytes: number }>> =>
+      ipcRenderer.invoke(IPC.SessionTranscript),
+    transcript: (id: string): Promise<TranscriptEntry[]> =>
+      ipcRenderer.invoke(IPC.SessionTranscript, id),
+    onNew: (handler: () => void): (() => void) => subscribe('helm:session-new', handler),
+    onClose: (handler: () => void): (() => void) => subscribe('helm:session-close', handler),
+    onResume: (handler: () => void): (() => void) => subscribe('helm:session-resume', handler),
   },
 
   route: {

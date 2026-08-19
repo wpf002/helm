@@ -67,22 +67,11 @@ body {
   font-size: 11px;
 }
 
-.terminal {
-  flex: 1 1 auto;
-  min-height: 0;
-  padding: 6px 8px 4px 10px;
-}
-
-/* xterm sizes itself to this box; the viewport owns the scrolling. */
-.terminal .xterm {
-  height: 100%;
-}
-
-.terminal .xterm-viewport::-webkit-scrollbar {
+.surfaces .xterm-viewport::-webkit-scrollbar {
   width: 9px;
 }
 
-.terminal .xterm-viewport::-webkit-scrollbar-thumb {
+.surfaces .xterm-viewport::-webkit-scrollbar-thumb {
   background: #262d3a;
   border-radius: 5px;
 }
@@ -291,4 +280,86 @@ body {
   font-size: 10px;
   opacity: 0.55;
   margin-left: 5px;
+}
+
+/* ---- sessions ---- */
+.surfaces {
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
+  padding: 6px 8px 4px 10px;
+}
+
+.surface {
+  height: 100%;
+}
+
+.surface .xterm {
+  height: 100%;
+}
+
+.tabs {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  -webkit-app-region: no-drag;
+  overflow-x: auto;
+  max-width: 46%;
+}
+
+.tab {
+  font: inherit;
+  font-size: 11.5px;
+  color: #7f8a9a;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 3px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.tab:hover {
+  background: #1a2029;
+}
+
+.tab--active {
+  color: #e8ecf2;
+  background: #1e2733;
+  border-color: #2c3849;
+}
+
+.tab--new {
+  color: #5c6470;
+  font-size: 13px;
+  padding: 2px 8px;
+}
+
+.tab__close {
+  opacity: 0.45;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.tab__close:hover {
+  opacity: 1;
+  color: #ff8b93;
+}
+
+.tab__dead {
+  color: #f0707a;
+  font-size: 9px;
+}
+
+.tab--resume {
+  color: #5c6470;
+  font-size: 12px;
+  padding: 2px 8px;
+}
+
+.tab--resume:hover {
+  color: #6fb2ff;
 }
