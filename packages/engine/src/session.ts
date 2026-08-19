@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type {
+  HookJSONOutput,
   Options,
   PermissionResult,
   Query,
@@ -7,6 +8,7 @@ import type {
   SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk';
 import type { PermissionDecision, PermissionRequest, StreamEvent, TokenUsage } from '@helm/shared';
+import { evaluateScope } from './scope.js';
 
 export interface EngineConfig {
   /** cwd the agent is launched in. Everything else must be an explicit root. */
@@ -179,22 +181,52 @@ export async function createSession(
     if (!disposed) callbacks.onEvent(event);
   };
 
+  const roots = [config.homeRoot, ...config.extraRoots];
+
+  /** Deterministic scope check, then the user. No model on this path. */
+  const ask = async (toolName: string, input: unknown): Promise<PermissionDecision> => {
+    const verdict = await evaluateScope(toolName, input, config.homeRoot, roots);
+    return callbacks.requestPermission({
+      id: randomUUID(),
+      toolName,
+      input,
+      affectedPaths: verdict.paths,
+      outOfScope: verdict.outOfScope,
+      factors: verdict.factors,
+      roots,
+    });
+  };
+
   const canUseTool = async (
     toolName: string,
     input: Record<string, unknown>,
   ): Promise<PermissionResult> => {
-    const decision = await callbacks.requestPermission({
-      id: randomUUID(),
-      toolName,
-      input,
-      // Phase 4 resolves real paths here. Until then the prompt shows the raw
-      // input and claims nothing about scope it has not actually checked.
-      affectedPaths: [],
-      outOfScope: false,
-    });
+    const decision = await ask(toolName, input);
     return decision.behavior === 'allow'
       ? { behavior: 'allow', updatedInput: input }
       : { behavior: 'deny', message: decision.reason ?? 'Denied in Helm.' };
+  };
+
+  /**
+   * canUseTool alone is not a gate. The SDK auto-approves tools it classifies
+   * as safe — a plain `ls` never reaches the callback — so with Full Disk
+   * Access granted, reads across the whole machine would bypass Helm entirely.
+   * A PreToolUse hook fires for every call regardless of that classification,
+   * which is what makes the permission layer actually total.
+   */
+  const preToolUse = async (hookInput: unknown): Promise<HookJSONOutput> => {
+    const record = isRecord(hookInput) ? hookInput : {};
+    const toolName = typeof record['tool_name'] === 'string' ? record['tool_name'] : 'unknown';
+    const toolInput = record['tool_input'];
+
+    const decision = await ask(toolName, toolInput);
+    return {
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: decision.behavior === 'allow' ? 'allow' : 'deny',
+        permissionDecisionReason: decision.reason ?? 'Decided in Helm.',
+      },
+    } as HookJSONOutput;
   };
 
   const options: Options = {
@@ -215,7 +247,14 @@ export async function createSession(
     settingSources: [],
     includePartialMessages: true,
     permissionMode: config.permissionMode === 'off' ? 'bypassPermissions' : 'default',
-    ...(config.permissionMode === 'off' ? {} : { canUseTool }),
+    ...(config.permissionMode === 'off'
+      ? {}
+      : {
+          canUseTool,
+          hooks: {
+            PreToolUse: [{ hooks: [preToolUse as never] }],
+          },
+        }),
     ...(config.pathToClaudeCodeExecutable
       ? { pathToClaudeCodeExecutable: config.pathToClaudeCodeExecutable }
       : {}),
