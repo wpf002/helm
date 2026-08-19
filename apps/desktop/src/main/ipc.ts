@@ -1,7 +1,7 @@
 // Registers every IPC.* channel. One file so the full surface is auditable in
 // a single read. Each handler validates its payload before acting.
 
-import { app, ipcMain, type BrowserWindow } from 'electron';
+import { app, ipcMain, Notification, type BrowserWindow } from 'electron';
 import { existsSync } from 'node:fs';
 import { dirname, join, sep } from 'node:path';
 import { spawnPty, type PtySession } from '@helm/shell';
@@ -10,6 +10,10 @@ import { IPC, type InputRoute, type SessionCreateOptions, type SessionInfo } fro
 import type { HelmEnv } from './env.js';
 import { clearPermissionState, requestPermission, resolvePermission } from './permissions.js';
 import { logRouting, recordFor } from './routing-log.js';
+import { loadConfig, saveConfig, type HelmConfig } from './config.js';
+import { readUsage, recordUsage } from './usage.js';
+import { hookStatus, installHook } from './shell-hook.js';
+import { checkForUpdates } from './update.js';
 import {
   closeAllTranscripts,
   closeTranscript,
@@ -285,6 +289,24 @@ export function registerIpc(getWindow: () => BrowserWindow | null, env: HelmEnv)
           // Agent output belongs to whichever session is in front when it
           // arrives; the renderer routes it, and the transcript follows.
           if (activeSessionId) recordAgent(activeSessionId, event);
+          if (event.kind === 'turn_end') {
+            if (event.usage) {
+              send(IPC.UsageChanged, recordUsage(event.usage, env.model ?? 'claude-sonnet-5'));
+            }
+            // Residency means a turn can finish with nothing on screen, and a
+            // turn that finishes silently may as well not have finished.
+            const win = getWindow();
+            const hidden = !win || win.isDestroyed() || !win.isVisible() || !win.isFocused();
+            if (hidden && loadConfig().notifyWhenHidden && Notification.isSupported()) {
+              const note = new Notification({ title: 'Helm', body: 'Agent turn finished.' });
+              note.on('click', () => {
+                const target = getWindow();
+                target?.show();
+                target?.focus();
+              });
+              note.show();
+            }
+          }
           send(IPC.AgentStream, event);
         },
         requestPermission: async (request) => {
@@ -339,6 +361,18 @@ export function registerIpc(getWindow: () => BrowserWindow | null, env: HelmEnv)
     void logRouting(recordFor(line, route, factors, explicit ? 'prefix' : 'live'));
     return route;
   });
+
+  ipcMain.handle(IPC.ConfigGet, (): HelmConfig => loadConfig());
+
+  ipcMain.handle(IPC.ConfigSet, (_event, raw: unknown): HelmConfig => {
+    if (!isRecord(raw)) return loadConfig();
+    return saveConfig(raw as Partial<HelmConfig>);
+  });
+
+  ipcMain.handle(IPC.UsageGet, () => readUsage());
+  ipcMain.handle(IPC.ShellHookStatus, () => hookStatus());
+  ipcMain.handle(IPC.ShellHookInstall, () => installHook());
+  ipcMain.handle(IPC.UpdateStatus, () => checkForUpdates());
 
   ipcMain.on(IPC.RouteVocabulary, (_event, raw: unknown) => {
     if (!Array.isArray(raw)) return;

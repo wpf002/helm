@@ -4,6 +4,7 @@
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
+import { SearchAddon } from '@xterm/addon-search';
 import type { TranscriptEntry } from '@helm/shared';
 import { AgentWriter } from './agentWriter';
 
@@ -31,6 +32,13 @@ export const THEME = {
   brightWhite: '#e8ecf2',
 };
 
+export interface TerminalParts {
+  term: Terminal;
+  fit: FitAddon;
+  search: SearchAddon;
+  host: HTMLDivElement;
+}
+
 export interface Session {
   /** The pty session id, assigned by main. Empty until create() resolves. */
   id: string;
@@ -40,6 +48,7 @@ export interface Session {
   host: HTMLDivElement;
   term: Terminal;
   fit: FitAddon;
+  search: SearchAddon;
   writer: AgentWriter;
   cwd: string;
   home: string;
@@ -54,29 +63,32 @@ export interface Session {
 
 let nextKey = 1;
 
-export function createTerminal(): { term: Terminal; fit: FitAddon; host: HTMLDivElement } {
+export function createTerminal(fontSize = 13, scrollback = 50_000): TerminalParts {
   const host = document.createElement('div');
   host.className = 'surface';
 
   const term = new Terminal({
     fontFamily: 'SFMono-Regular, "SF Mono", Menlo, Monaco, "JetBrains Mono", monospace',
-    fontSize: 13,
+    fontSize,
     lineHeight: 1.25,
     cursorBlink: true,
     cursorStyle: 'bar',
     allowProposedApi: true,
-    scrollback: 50_000,
+    scrollback,
     macOptionIsMeta: true,
     theme: THEME,
   });
 
   const fit = new FitAddon();
+  const search = new SearchAddon();
   term.loadAddon(fit);
+  term.loadAddon(search);
   term.loadAddon(new WebLinksAddon());
-  return { term, fit, host };
+  return { term, fit, search, host };
 }
 
-export function newSession(host: HTMLDivElement, term: Terminal, fit: FitAddon): Session {
+export function newSession(parts: TerminalParts): Session {
+  const { host, term, fit, search } = parts;
   return {
     id: '',
     key: nextKey++,
@@ -84,6 +96,7 @@ export function newSession(host: HTMLDivElement, term: Terminal, fit: FitAddon):
     host,
     term,
     fit,
+    search,
     writer: new AgentWriter(term),
     cwd: '',
     home: '',

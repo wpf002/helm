@@ -3,8 +3,10 @@
 // rather than replaying anything, so each session keeps its own history.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { PermissionRequest, TranscriptEntry } from '@helm/shared';
+import type { HelmConfig, PermissionRequest, ShellHookStatus, TranscriptEntry, UsageTotals } from '@helm/shared';
 import { PermissionOverlay } from './PermissionOverlay';
+import { FindBar } from './FindBar';
+import { Preferences } from './Preferences';
 import { createTerminal, newSession, replay, type Session } from './session';
 
 const RESIZE_DEBOUNCE_MS = 80;
@@ -53,6 +55,16 @@ export default function App(): JSX.Element {
   const [pendingPermission, setPendingPermission] = useState<PermissionRequest | null>(null);
   const [permissionMode, setPermissionMode] = useState<'off' | 'prompt' | 'auto'>('prompt');
   const [busy, setBusy] = useState(false);
+  const [config, setConfig] = useState<HelmConfig | null>(null);
+  const [usage, setUsage] = useState<UsageTotals | null>(null);
+  const [hook, setHook] = useState<ShellHookStatus | null>(null);
+  const [showFind, setShowFind] = useState(false);
+  const [showPrefs, setShowPrefs] = useState(false);
+  const [updateMessage, setUpdateMessage] = useState<string | null>(null);
+  const configRef = useRef<HelmConfig | null>(null);
+  const searchRef = useRef<((q: string, d: 'next' | 'previous') => boolean) | null>(null);
+  const applyFontRef = useRef<(size: number) => void>(() => {});
+  const focusRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -249,17 +261,42 @@ export default function App(): JSX.Element {
         flush();
       });
 
+      // Copy on select and middle-click paste are what every other terminal
+      // does; without them selection is decorative.
+      const onSelection = s.term.onSelectionChange(() => {
+        if (!configRef.current?.copyOnSelect) return;
+        const text = s.term.getSelection();
+        if (text) void navigator.clipboard.writeText(text).catch(() => undefined);
+      });
+
+      const onMouse = (event: MouseEvent): void => {
+        if (event.button !== 1 || !configRef.current?.middleClickPaste) return;
+        event.preventDefault();
+        void navigator.clipboard
+          .readText()
+          .then((text) => {
+            if (text && s.id) window.helm.pty.write(s.id, text);
+          })
+          .catch(() => undefined);
+      };
+      s.host.addEventListener('mousedown', onMouse);
+
       const previous = s.dispose;
       s.dispose = () => {
         onInput.dispose();
+        onSelection.dispose();
+        s.host.removeEventListener('mousedown', onMouse);
         previous();
       };
     };
 
     const addSession = async (entries?: readonly TranscriptEntry[]): Promise<void> => {
-      const { term, fit, host } = createTerminal();
-      const s = newSession(host, term, fit);
-      mount.appendChild(host);
+      const parts = createTerminal(
+        configRef.current?.fontSize ?? 13,
+        configRef.current?.scrollback ?? 50_000,
+      );
+      const s = newSession(parts);
+      mount.appendChild(s.host);
       sessionsRef.current.push(s);
       activeRef.current = sessionsRef.current.length - 1;
       wire(s);
@@ -334,6 +371,66 @@ export default function App(): JSX.Element {
       );
     });
 
+    searchRef.current = (query, direction) => {
+      const s = active();
+      if (!s) return false;
+      return direction === 'next'
+        ? s.search.findNext(query, { incremental: false })
+        : s.search.findPrevious(query, { incremental: false });
+    };
+
+    focusRef.current = () => active()?.term.focus();
+
+    applyFontRef.current = (size) => {
+      for (const s of sessionsRef.current) {
+        s.term.options.fontSize = size;
+        try {
+          s.fit.fit();
+        } catch {
+          /* not laid out */
+        }
+        if (s.id && s.exited === null) window.helm.pty.resize(s.id, s.term.cols, s.term.rows);
+      }
+    };
+
+    const offFind = window.helm.onFind(() => setShowFind(true));
+    const offPrefs = window.helm.onPreferences(() => setShowPrefs(true));
+    const offUpdateReq = window.helm.updates.onRequested(() => {
+      setShowPrefs(true);
+      void window.helm.updates.check().then((r) => setUpdateMessage(r.message));
+    });
+    const offUsage = window.helm.usage.onChanged((totals) => setUsage(totals));
+
+    const offFont = window.helm.onFontStep((step) => {
+      const current = configRef.current?.fontSize ?? 13;
+      const next = step === 0 ? 13 : Math.min(24, Math.max(8, current + step));
+      void window.helm.config.set({ fontSize: next }).then((updated) => {
+        configRef.current = updated;
+        setConfig(updated);
+        applyFontRef.current(updated.fontSize);
+      });
+    });
+
+    // Load preferences and status before the first session, so the terminal is
+    // created at the right size rather than resized a frame later.
+    void (async () => {
+      const [loaded, totals, hookStatus] = await Promise.all([
+        window.helm.config.get(),
+        window.helm.usage.get(),
+        window.helm.shellHook.status(),
+      ]);
+      if (disposed) return;
+      configRef.current = loaded;
+      setConfig(loaded);
+      setUsage(totals);
+      setHook(hookStatus);
+      if (loaded.checkForUpdates) {
+        void window.helm.updates.check().then((r) => {
+          if (r.checked && r.behind > 0) setUpdateMessage(r.message);
+        });
+      }
+    })();
+
     const offClear = window.helm.onClear(() => active()?.term.clear());
     const offNewTab = window.helm.session.onNew(() => void addSession());
     const offCloseTab = window.helm.session.onClose(() => void closeSession(activeRef.current));
@@ -390,6 +487,11 @@ export default function App(): JSX.Element {
       offNewTab();
       offCloseTab();
       offResume();
+      offFind();
+      offPrefs();
+      offFont();
+      offUsage();
+      offUpdateReq();
       for (const s of sessionsRef.current) s.dispose();
       sessionsRef.current = [];
     };
@@ -449,8 +551,57 @@ export default function App(): JSX.Element {
           <span className="titlebar__cwd">{displayCwd(current.cwd, current.home)}</span>
         )}
         {busy && <span className="titlebar__busy">agent working — ^C to stop</span>}
+        {hook && !hook.installed && (
+          <button
+            className="titlebar__nudge"
+            onClick={() => setShowPrefs(true)}
+            title="Plain English is not routed to the agent until the shell integration is installed"
+          >
+            shell integration off
+          </button>
+        )}
+        {usage && usage.turns > 0 && (
+          <button
+            className="titlebar__usage"
+            onClick={() => setShowPrefs(true)}
+            title={`${usage.turns} turns today · ${usage.input + usage.cacheRead + usage.cacheWrite} in / ${usage.output} out (estimate)`}
+          >
+            ${usage.costUsd.toFixed(2)} today
+          </button>
+        )}
       </header>
       <div className="surfaces" ref={mountRef} />
+      {showFind && (
+        <FindBar
+          onSearch={(query, direction) => searchRef.current?.(query, direction) ?? false}
+          onClose={() => {
+            setShowFind(false);
+            focusRef.current();
+          }}
+        />
+      )}
+      {showPrefs && config && (
+        <Preferences
+          config={config}
+          hook={hook}
+          updateMessage={updateMessage}
+          onChange={(patch) => {
+            void window.helm.config.set(patch).then((updated) => {
+              configRef.current = updated;
+              setConfig(updated);
+              if (patch.fontSize !== undefined) applyFontRef.current(updated.fontSize);
+            });
+          }}
+          onInstallHook={() => {
+            void window.helm.shellHook.install().then((status) => setHook(status));
+          }}
+          onCheckUpdates={() => {
+            setUpdateMessage('Checking…');
+            void window.helm.updates.check().then((r) => setUpdateMessage(r.message));
+          }}
+          onClose={() => setShowPrefs(false)}
+        />
+      )}
       {pendingPermission && (
         <PermissionOverlay
           request={pendingPermission}

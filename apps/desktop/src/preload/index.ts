@@ -16,6 +16,9 @@ import {
   type StreamEvent,
   type InputRoute,
   type TranscriptEntry,
+  type HelmConfig,
+  type UsageTotals,
+  type ShellHookStatus,
 } from '@helm/shared';
 
 /** Every listener hands back its own unsubscribe so React effects stay clean. */
@@ -107,6 +110,33 @@ const api = {
       ipcRenderer.send(IPC.RouteObserve, { input, target });
     },
   },
+
+  config: {
+    get: (): Promise<HelmConfig> => ipcRenderer.invoke(IPC.ConfigGet),
+    set: (patch: Partial<HelmConfig>): Promise<HelmConfig> => ipcRenderer.invoke(IPC.ConfigSet, patch),
+  },
+
+  usage: {
+    get: (): Promise<UsageTotals> => ipcRenderer.invoke(IPC.UsageGet),
+    onChanged: (handler: (totals: UsageTotals) => void): (() => void) =>
+      subscribe(IPC.UsageChanged, handler),
+  },
+
+  shellHook: {
+    status: (): Promise<ShellHookStatus> => ipcRenderer.invoke(IPC.ShellHookStatus),
+    install: (): Promise<ShellHookStatus> => ipcRenderer.invoke(IPC.ShellHookInstall),
+  },
+
+  updates: {
+    check: (): Promise<{ checked: boolean; behind: number; current: string; message: string }> =>
+      ipcRenderer.invoke(IPC.UpdateStatus),
+    onRequested: (handler: () => void): (() => void) => subscribe('helm:check-updates', handler),
+  },
+
+  /** UI-only commands from the application menu. They carry no capability. */
+  onFind: (handler: () => void): (() => void) => subscribe('helm:find', handler),
+  onFontStep: (handler: (step: number) => void): (() => void) => subscribe('helm:font', handler),
+  onPreferences: (handler: () => void): (() => void) => subscribe('helm:preferences', handler),
 
   /** UI-only command from the application menu. Carries no capability. */
   onClear: (handler: () => void): (() => void) => subscribe('helm:clear', handler),

@@ -2,7 +2,15 @@
 // references to @helm/engine and @helm/shell. Nothing below src/renderer may
 // import either package — enforced by the boundary check in scripts/.
 
-import { app, BrowserWindow, globalShortcut, Menu, nativeImage, nativeTheme, shell } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  globalShortcut,
+  Menu,
+  nativeImage,
+  nativeTheme,
+  shell,
+} from 'electron';
 import { join } from 'node:path';
 import { loadEnv } from './env.js';
 import { disposeAgent, killAllSessions, registerIpc } from './ipc.js';
@@ -62,7 +70,22 @@ function buildMenu(): void {
     Menu.buildFromTemplate([
       {
         label: 'Helm',
-        submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'hide' }, { role: 'quit' }],
+        submenu: [
+          { role: 'about' },
+          {
+            label: 'Check for Updates…',
+            click: () => mainWindow?.webContents.send('helm:check-updates'),
+          },
+          { type: 'separator' },
+          {
+            label: 'Preferences…',
+            accelerator: 'CmdOrCtrl+,',
+            click: () => mainWindow?.webContents.send('helm:preferences'),
+          },
+          { type: 'separator' },
+          { role: 'hide' },
+          { role: 'quit' },
+        ],
       },
       {
         label: 'Session',
@@ -102,6 +125,28 @@ function buildMenu(): void {
       {
         label: 'View',
         submenu: [
+          {
+            label: 'Find…',
+            accelerator: 'CmdOrCtrl+F',
+            click: () => mainWindow?.webContents.send('helm:find'),
+          },
+          { type: 'separator' },
+          {
+            label: 'Bigger Text',
+            accelerator: 'CmdOrCtrl+Plus',
+            click: () => mainWindow?.webContents.send('helm:font', 1),
+          },
+          {
+            label: 'Smaller Text',
+            accelerator: 'CmdOrCtrl+-',
+            click: () => mainWindow?.webContents.send('helm:font', -1),
+          },
+          {
+            label: 'Actual Size',
+            accelerator: 'CmdOrCtrl+0',
+            click: () => mainWindow?.webContents.send('helm:font', 0),
+          },
+          { type: 'separator' },
           { role: 'togglefullscreen' },
           { role: 'toggleDevTools' },
           { type: 'separator' },

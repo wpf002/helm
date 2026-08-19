@@ -10,6 +10,13 @@ export const IPC = {
   InputSubmit: 'input:submit',
   RouteObserve: 'route:observe',
   RouteVocabulary: 'route:vocabulary',
+  ConfigGet: 'config:get',
+  ConfigSet: 'config:set',
+  UsageGet: 'usage:get',
+  UsageChanged: 'usage:changed',
+  ShellHookStatus: 'shell:hook-status',
+  ShellHookInstall: 'shell:hook-install',
+  UpdateStatus: 'update:status',
   SessionNew: 'session:new',
   SessionClose: 'session:close',
   SessionActivate: 'session:activate',
@@ -77,6 +84,33 @@ export interface SessionCreateOptions {
 export type TranscriptEntry =
   | { t: 'pty'; d: string }
   | { t: 'agent'; e: StreamEvent };
+
+/** Cumulative token spend for the current day. Estimates, not billing. */
+export interface UsageTotals {
+  day: string;
+  turns: number;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  costUsd: number;
+}
+
+export interface HelmConfig {
+  fontSize: number;
+  copyOnSelect: boolean;
+  middleClickPaste: boolean;
+  notifyWhenHidden: boolean;
+  checkForUpdates: boolean;
+  scrollback: number;
+}
+
+/** Whether the zsh integration is installed, and where it would go. */
+export interface ShellHookStatus {
+  installed: boolean;
+  hookPath: string;
+  rcPath: string;
+}
 
 export interface SessionInfo {
   id: string;

@@ -21,6 +21,12 @@ mac:
     NSDesktopFolderUsageDescription: Helm reads and edits files you point it at.
     NSDocumentsFolderUsageDescription: Helm reads and edits files you point it at.
     NSDownloadsFolderUsageDescription: Helm reads and edits files you point it at.
+extraResources:
+  # The shell integration has to be installable from the packaged app, which
+  # cannot reach the repo it was built from.
+  - from: ../../scripts/helm-osc7.zsh
+    to: helm-osc7.zsh
+
 asarUnpack:
   # Both spawn real processes and resolve files relative to their own location,
   # which does not work from inside an asar archive.
