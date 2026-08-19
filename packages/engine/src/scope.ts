@@ -21,6 +21,59 @@ const PATH_KEYS: Record<string, string[]> = {
 /** Keys that name a path in any tool, used for the generic sweep. */
 const GENERIC_KEYS = ['file_path', 'notebook_path', 'path', 'cwd', 'directory'];
 
+/**
+ * Commands that report on the system and cannot change it. Treating `uptime`
+ * exactly like `rm -rf` made every prompt uninformative — if everything is
+ * flagged, the flag means nothing and you learn to click through it, which is
+ * worse than not asking.
+ */
+const READ_ONLY_COMMANDS = new Set([
+  // system state
+  'uptime', 'date', 'whoami', 'id', 'hostname', 'uname', 'sw_vers', 'w', 'who',
+  'ps', 'top', 'vm_stat', 'df', 'du', 'sysctl', 'pmset', 'iostat', 'nettop',
+  'system_profiler', 'ioreg', 'launchctl', 'sysdiagnose', 'memory_pressure',
+  'netstat', 'ifconfig', 'arp', 'route', 'scutil', 'networkQuality', 'lsof',
+  'defaults', 'stat', 'file', 'which', 'whence', 'type', 'command', 'env',
+  'printenv', 'locale', 'groups', 'hostinfo', 'nproc', 'sw_vers',
+  // reading and shaping text
+  'cat', 'head', 'tail', 'less', 'more', 'wc', 'sort', 'uniq', 'cut', 'tr',
+  'column', 'fold', 'nl', 'rev', 'jq', 'yq', 'echo', 'printf', 'basename',
+  'dirname', 'realpath', 'seq', 'true', 'false', 'awk', 'grep', 'egrep',
+  'fgrep', 'rg', 'ag', 'diff', 'cmp', 'md5', 'shasum', 'base64', 'xxd', 'od',
+  'ls', 'tree', 'pwd', 'readlink',
+]);
+
+/** Anything here can change state even when the head looks harmless. */
+const MUTATING_PATTERN =
+  /(^|\s)(>{1,2}(?!\s*\/dev\/null))|(^|\s)(rm|mv|cp|mkdir|rmdir|chmod|chown|ln|touch|tee|dd|kill|killall|pkill|shutdown|reboot|sudo|installer|defaults\s+write|launchctl\s+(load|unload|bootout))(\s|$)|(\s)-i(\s|$)|--in-place|-delete|-exec/;
+
+export type CommandKind = 'read-only' | 'mutating';
+
+/**
+ * Deterministic read/write classification for a shell command. Every segment
+ * of a pipeline must be a known read-only command, and nothing may redirect
+ * output anywhere but /dev/null.
+ */
+export function classifyCommand(command: string): CommandKind {
+  if (MUTATING_PATTERN.test(command)) return 'mutating';
+
+  const segments = command
+    .split(/\||;|&&|\|\||\n/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (segments.length === 0) return 'mutating';
+
+  for (const segment of segments) {
+    // Skip leading VAR=value assignments, as the shell does.
+    const tokens = segment.split(/\s+/).filter(Boolean);
+    let index = 0;
+    while (index < tokens.length - 1 && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[index] ?? '')) index++;
+    const bare = (tokens[index] ?? '').replace(/^.*\//, '');
+    if (!READ_ONLY_COMMANDS.has(bare)) return 'mutating';
+  }
+  return 'read-only';
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
@@ -148,6 +201,21 @@ export async function evaluateScope(
         : `${toolName} declared no path arguments.`,
       effect: 'info',
     });
+    if (command && classifyCommand(command) === 'read-only') {
+      return {
+        paths: [],
+        outOfScope: false,
+        factors: [
+          ...factors,
+          {
+            rule: 'read-only-command',
+            detail: 'Every part of this pipeline only reports state; nothing here can change it.',
+            effect: 'in-scope',
+          },
+        ],
+      };
+    }
+
     // A command whose paths cannot be read is not evidence of safety. It is
     // reported as unresolved so the prompt can say so plainly.
     return {
@@ -194,6 +262,15 @@ export async function evaluateScope(
         effect: 'out-of-scope',
       });
     }
+  }
+
+  if (outOfScope && command && classifyCommand(command) === 'read-only') {
+    factors.push({
+      rule: 'read-only-command',
+      detail: 'Reads outside your roots, but nothing in this pipeline can change anything.',
+      effect: 'in-scope',
+    });
+    return { paths, outOfScope: false, factors };
   }
 
   return { paths, outOfScope, factors };
