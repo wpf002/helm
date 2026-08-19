@@ -1,7 +1,9 @@
 // Registers every IPC.* channel. One file so the full surface is auditable in
 // a single read. Each handler validates its payload before acting.
 
-import { ipcMain, type BrowserWindow } from 'electron';
+import { app, ipcMain, type BrowserWindow } from 'electron';
+import { existsSync } from 'node:fs';
+import { dirname, join, sep } from 'node:path';
 import { spawnPty, type PtySession } from '@helm/shell';
 import { createSession, routeInputWithFactors, scanPathBinaries, type AgentSession } from '@helm/engine';
 import { IPC, type InputRoute, type SessionCreateOptions, type SessionInfo } from '@helm/shared';
@@ -84,6 +86,57 @@ let agent: AgentSession | null = null;
 let agentStarting: Promise<AgentSession | null> | null = null;
 /** Tool name by request id, so a session-scoped grant knows what it granted. */
 const requestTools = new Map<string, string>();
+
+/**
+ * The Agent SDK spawns a platform binary it locates relative to its own module
+ * path. Inside a packaged app that path lands in app.asar, which is a file
+ * rather than a directory, so the spawn fails with ENOTDIR and the agent never
+ * starts — while working perfectly in development. The binary is unpacked by
+ * electron-builder's asarUnpack; this points the SDK at it.
+ */
+function resolveClaudeExecutable(): string | undefined {
+  const platformPkg = `@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}`;
+  const candidates: string[] = [];
+
+  // Packaged: the binary is unpacked beside the asar. This is deterministic,
+  // unlike module resolution, which fails here because the SDK's exports map
+  // has no "./package.json" entry for require.resolve to find.
+  if (process.resourcesPath) {
+    candidates.push(
+      join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', '@anthropic-ai',
+        'claude-agent-sdk', 'node_modules', platformPkg, 'claude'),
+      join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', platformPkg, 'claude'),
+    );
+  }
+
+  // Development: hoisted into the workspace root beside the SDK.
+  const appPath = app.getAppPath();
+  candidates.push(
+    join(appPath, 'node_modules', '@anthropic-ai', platformPkg, 'claude'),
+    join(appPath, '..', '..', 'node_modules', '@anthropic-ai', platformPkg, 'claude'),
+    join(appPath, '..', '..', 'node_modules', '@anthropic-ai', 'claude-agent-sdk',
+      'node_modules', '@anthropic-ai', platformPkg, 'claude'),
+  );
+
+  // Last resort: derive from the SDK entry point, which the exports map does
+  // allow, and swap the asar segment if we are inside one.
+  try {
+    const sdkDir = dirname(require.resolve('@anthropic-ai/claude-agent-sdk'));
+    candidates.push(
+      join(sdkDir, 'node_modules', '@anthropic-ai', platformPkg, 'claude'),
+      join(sdkDir, '..', platformPkg, 'claude'),
+    );
+  } catch {
+    // Resolution is optional; the explicit paths above cover both layouts.
+  }
+
+  for (const candidate of candidates) {
+    for (const path of [candidate, candidate.replace(`app.asar${sep}`, `app.asar.unpacked${sep}`)]) {
+      if (existsSync(path)) return path;
+    }
+  }
+  return undefined;
+}
 
 /** Which session agent output is attributed to. Set by the renderer. */
 let activeSessionId: string | null = null;
@@ -210,6 +263,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null, env: HelmEnv)
   );
 
   /** Creates the agent on first use. Cheap: the SDK subprocess spawns lazily. */
+  const claudeExecutable = resolveClaudeExecutable();
+  if (!claudeExecutable) {
+    console.error('[helm] could not locate the Claude Code executable; the agent will not start.');
+  }
+
   const ensureAgent = async (): Promise<AgentSession | null> => {
     if (agent) return agent;
     if (agentStarting) return agentStarting;
@@ -220,6 +278,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, env: HelmEnv)
         extraRoots: env.extraRoots,
         permissionMode: env.permissionMode,
         ...(env.model ? { model: env.model } : {}),
+        ...(claudeExecutable ? { pathToClaudeCodeExecutable: claudeExecutable } : {}),
       },
       {
         onEvent: (event) => {

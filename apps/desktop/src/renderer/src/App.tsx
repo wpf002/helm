@@ -12,6 +12,17 @@ const ESC = String.fromCharCode(0x1b);
 const CTRL_C = String.fromCharCode(0x03);
 const BACKSPACE = String.fromCharCode(0x7f);
 
+/**
+ * atob() yields a binary string, one char per byte. Feeding that straight back
+ * to the pty re-encodes every byte as UTF-8, so `café` came back as `cafÃ©` and
+ * any accented filename, CJK or emoji typed at the prompt was mangled.
+ */
+function decodeBase64Utf8(data: string): string {
+  const binary = atob(data);
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
 function displayCwd(cwd: string, home: string): string {
   if (home && cwd.startsWith(home)) return '~' + cwd.slice(home.length);
   return cwd;
@@ -109,7 +120,7 @@ export default function App(): JSX.Element {
 
       s.term.parser.registerOscHandler(7376, (data) => {
         try {
-          const words = atob(data).split(/\s+/).filter(Boolean);
+          const words = decodeBase64Utf8(data).split(/\s+/).filter(Boolean);
           if (words.length > 0) window.helm.route.vocabulary(words);
         } catch {
           /* malformed vocabulary report */
@@ -124,7 +135,7 @@ export default function App(): JSX.Element {
 
       s.term.parser.registerOscHandler(7374, (data) => {
         try {
-          void submitLine(s, atob(data));
+          void submitLine(s, decodeBase64Utf8(data));
         } catch {
           /* malformed submission */
         }
@@ -133,7 +144,7 @@ export default function App(): JSX.Element {
 
       s.term.parser.registerOscHandler(7373, (data) => {
         try {
-          window.helm.route.observe(atob(data), 'shell');
+          window.helm.route.observe(decodeBase64Utf8(data), 'shell');
         } catch {
           /* malformed report */
         }

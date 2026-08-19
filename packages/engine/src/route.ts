@@ -56,7 +56,17 @@ function shellSyntax(line: string, tokens: readonly string[]): string[] {
   if (/[*?[\]]/.test(line) && tokens.length > 1) seen.push('glob');
   if (/`|\$\(/.test(line)) seen.push('substitution');
   if (/[A-Za-z0-9._-]+=[^\s]/.test(line)) seen.push('assignment');
+  if (/(^|\s)['"]/.test(line)) seen.push('quoted');
   return seen;
+}
+
+/**
+ * Blanks quoted spans. Text inside quotes is an argument, not grammar:
+ * `git commit -m 'fix the thing'` is a command whose message happens to
+ * contain English, and counting those words as prose sent it to the agent.
+ */
+function withoutQuoted(line: string): string {
+  return line.replace(/'[^']*'/g, ' ').replace(/"[^"]*"/g, ' ');
 }
 
 /** Punctuation that reads as a sentence rather than an argument. */
@@ -123,7 +133,10 @@ export function routeInputWithFactors(
   ) {
     commandIndex++;
   }
-  const first = tokens[commandIndex] ?? '';
+  // Operators bind to the token without whitespace: `false;` and `ls;echo`
+  // both hid the command name, so lookup failed and the line went to the
+  // agent — which then tried to run it as a tool call.
+  const first = (tokens[commandIndex] ?? '').split(/[;|&<>()]/)[0] ?? '';
   const head = first.replace(/^.*\//, '');
   const isBuiltin = SHELL_BUILTINS.has(first);
   const onPath = pathBinaries.has(first) || pathBinaries.has(head);
@@ -162,8 +175,11 @@ export function routeInputWithFactors(
     return { route: { target: 'shell', command: trimmed }, factors };
   }
 
-  const punctuation = sentencePunctuation(trimmed);
-  const prose = tokens.slice(commandIndex + 1).filter((t) => PROSE_MARKERS.has(t.toLowerCase()));
+  const punctuation = sentencePunctuation(withoutQuoted(trimmed));
+  const prose = withoutQuoted(trimmed)
+    .split(/\s+/)
+    .slice(commandIndex + 1)
+    .filter((word) => PROSE_MARKERS.has(word.toLowerCase()));
   const syntax = shellSyntax(trimmed, tokens);
 
   if (syntax.length > 0) {
@@ -209,25 +225,16 @@ export function routeInputWithFactors(
     return { route: { target: 'agent', prompt: trimmed }, factors };
   }
 
-  // A bare known command with no contrary evidence.
-  if (tokens.length === 1 || syntax.length > 0 || tokens.length <= 4) {
-    factors.push({
-      rule: 'resolves-and-clean',
-      detail: 'First token resolves and nothing reads as prose.',
-      effect: 'info',
-    });
-    return { route: { target: 'shell', command: trimmed }, factors };
-  }
-
-  // Long, wordy, no shell syntax, no prose markers: genuinely ambiguous.
-  // A misrouted prompt wastes a turn; a misrouted shell command can be
-  // destructive, so the tie goes to the agent.
+  // The first token resolves, nothing reads as a sentence, and no function
+  // words appear outside quotes. An earlier version also demanded the line be
+  // short, which sent `echo one two three four five six` to the agent —
+  // length is not evidence of prose.
   factors.push({
-    rule: 'tie-broken-to-agent',
-    detail: `${tokens.length} words with no shell syntax; ambiguous, so the agent takes it.`,
+    rule: 'resolves-and-clean',
+    detail: 'First token resolves and nothing reads as prose.',
     effect: 'info',
   });
-  return { route: { target: 'agent', prompt: trimmed }, factors };
+  return { route: { target: 'shell', command: trimmed }, factors };
 }
 
 /** Built once at startup by walking PATH. Refresh on shell profile change. */

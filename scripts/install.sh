@@ -53,6 +53,23 @@ cp -R "$APP_SRC" "$APP_DEST"
 # The quarantine bit makes Gatekeeper refuse a self-signed build.
 xattr -dr com.apple.quarantine "$APP_DEST" 2>/dev/null || true
 
+# --------------------------------------------------------------- env
+# A Dock-launched app starts inside /Applications and can never walk up to the
+# repo, so it cannot see ./.env. Without credentials there the agent fails on
+# every turn with an authentication error. ~/.helm/.env is the location the app
+# checks first.
+USER_ENV="$HOME/.helm/.env"
+if [ -f .env ] && [ ! -f "$USER_ENV" ]; then
+  mkdir -p "$HOME/.helm"
+  cp .env "$USER_ENV"
+  chmod 600 "$USER_ENV"
+  echo "==> copied .env to $USER_ENV (mode 600) so the installed app can authenticate"
+elif [ -f "$USER_ENV" ]; then
+  echo "==> using existing $USER_ENV"
+else
+  echo "==> WARNING: no .env found; the agent will have no credentials."
+fi
+
 # ------------------------------------------------------------- dock
 # Skip the add when it is already pinned, so re-running does not stack icons.
 if defaults read com.apple.dock persistent-apps 2>/dev/null | grep -q "$APP_DEST"; then

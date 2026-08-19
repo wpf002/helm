@@ -33,8 +33,16 @@ function parseEnvFile(text: string): Record<string, string> {
   return out;
 }
 
-/** Walks up from `start` looking for a .env, stopping at the filesystem root. */
+/**
+ * Walks up from `start` looking for a .env, stopping at the filesystem root.
+ * A packaged app launched from the Dock starts inside /Applications and can
+ * never reach the repo, so ~/.helm/.env is checked first — without it the
+ * agent has no credentials and every turn fails on authentication.
+ */
 function findEnvFile(start: string): string | undefined {
+  const userEnv = join(homedir(), '.helm', '.env');
+  if (existsSync(userEnv)) return userEnv;
+
   let dir = resolve(start);
   for (let i = 0; i < 6; i++) {
     const candidate = join(dir, '.env');
