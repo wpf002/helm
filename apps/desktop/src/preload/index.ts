@@ -88,6 +88,14 @@ const api = {
   },
 
   route: {
+    /**
+     * Words the shell itself can run — builtins, reserved words, functions and
+     * aliases. PATH scanning cannot see any of them.
+     */
+    vocabulary: (words: string[]): void => {
+      ipcRenderer.send(IPC.RouteVocabulary, words);
+    },
+
     /** Routes a submitted line. Returns where it should go. */
     submit: (line: string): Promise<InputRoute> => ipcRenderer.invoke(IPC.InputSubmit, line),
 

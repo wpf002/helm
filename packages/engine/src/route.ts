@@ -2,13 +2,31 @@ import { readdir } from 'node:fs/promises';
 import { delimiter } from 'node:path';
 import type { Factor, InputRoute } from '@helm/shared';
 
-/** Builtins are not on PATH but are unmistakably shell. */
+/**
+ * Builtins are not on PATH but are unmistakably shell. This is the fallback
+ * only: when scripts/helm-osc7.zsh is sourced the shell reports its own
+ * vocabulary — builtins, reserved words, functions and the user's aliases —
+ * which no hand-maintained list can match. An earlier bash-centric version of
+ * this list sent `print`, `setopt` and `autoload` to the agent, costing an API
+ * turn and a permission prompt each.
+ */
 const SHELL_BUILTINS = new Set([
+  // POSIX / bash
   'cd', 'export', 'source', 'alias', 'unalias', 'set', 'unset', 'echo', 'pwd',
   'exit', 'jobs', 'fg', 'bg', 'kill', 'wait', 'type', 'which', 'command',
   'history', 'eval', 'exec', 'test', 'read', 'shift', 'trap', 'umask',
   'ulimit', 'local', 'return', 'declare', 'typeset', 'let', 'pushd', 'popd',
   'dirs', 'hash', 'times', 'time', 'builtin', 'enable', 'disown', 'suspend',
+  'getopts', 'printf', 'true', 'false', 'break', 'continue', 'readonly',
+  // zsh
+  'print', 'setopt', 'unsetopt', 'autoload', 'whence', 'bindkey', 'zmodload',
+  'zstyle', 'compdef', 'compinit', 'zle', 'emulate', 'functions', 'integer',
+  'float', 'noglob', 'nocorrect', 'zcompile', 'zparseopts', 'zregexparse',
+  'add-zsh-hook', 'vared', 'fc', 'rehash', 'ttyctl', 'sched', 'limit',
+  'unlimit', 'unfunction', 'unhash', 'where', 'zargs', 'zed', 'zmv',
+  // reserved words
+  'if', 'fi', 'else', 'elif', 'for', 'while', 'until', 'do', 'done', 'case',
+  'esac', 'function', 'select', 'repeat', 'foreach', 'end', 'coproc',
 ]);
 
 /**
@@ -126,6 +144,24 @@ export function routeInputWithFactors(
     effect: 'info',
   });
 
+  /**
+   * Control structures and operators are shell grammar, not English. `for f in
+   * *; do ...; done` is full of words that look like prose — "in", "do" — but
+   * the construct itself is unambiguous, so it must outrank the prose check.
+   */
+  const RESERVED_STARTS = new Set([
+    'if', 'for', 'while', 'until', 'case', 'select', 'repeat', 'function',
+    'foreach', 'coproc', 'do', 'then',
+  ]);
+  if (RESERVED_STARTS.has(first)) {
+    factors.push({
+      rule: 'shell-control-structure',
+      detail: `"${first}" opens a shell control structure.`,
+      effect: 'info',
+    });
+    return { route: { target: 'shell', command: trimmed }, factors };
+  }
+
   const punctuation = sentencePunctuation(trimmed);
   const prose = tokens.slice(commandIndex + 1).filter((t) => PROSE_MARKERS.has(t.toLowerCase()));
   const syntax = shellSyntax(trimmed, tokens);
@@ -145,6 +181,21 @@ export function routeInputWithFactors(
       effect: 'info',
     });
     return { route: { target: 'agent', prompt: trimmed }, factors };
+  }
+
+  // Operators and redirects are grammar no sentence carries. They do outrank
+  // prose markers, unlike a bare path — `find the file in /tmp` has a path and
+  // is still not a command, but `cat a | grep b` cannot be anything else.
+  const strongSyntax = syntax.filter((s) =>
+    ['operator', 'redirect', 'substitution'].includes(s),
+  );
+  if (strongSyntax.length > 0) {
+    factors.push({
+      rule: 'shell-grammar',
+      detail: `Carries shell grammar no sentence would: ${strongSyntax.join(', ')}.`,
+      effect: 'info',
+    });
+    return { route: { target: 'shell', command: trimmed }, factors };
   }
 
   if (prose.length > 0) {

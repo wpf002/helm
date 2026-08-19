@@ -9,6 +9,7 @@ export const IPC = {
   PtyResize: 'pty:resize',
   InputSubmit: 'input:submit',
   RouteObserve: 'route:observe',
+  RouteVocabulary: 'route:vocabulary',
   SessionNew: 'session:new',
   SessionClose: 'session:close',
   SessionActivate: 'session:activate',

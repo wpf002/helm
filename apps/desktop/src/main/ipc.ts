@@ -281,6 +281,19 @@ export function registerIpc(getWindow: () => BrowserWindow | null, env: HelmEnv)
     return route;
   });
 
+  ipcMain.on(IPC.RouteVocabulary, (_event, raw: unknown) => {
+    if (!Array.isArray(raw)) return;
+    // The shell is the authority on what it can run. A hand-maintained list in
+    // TypeScript cannot know that `print` and `setopt` are zsh builtins, nor
+    // that `gs` is the user's alias — and every word it misses costs an API
+    // turn and a permission prompt.
+    for (const word of raw) {
+      if (typeof word === 'string' && word.length > 0 && word.length < 128) {
+        pathBinaries.add(word);
+      }
+    }
+  });
+
   ipcMain.on(IPC.RouteObserve, (_event, raw: unknown) => {
     if (!isRecord(raw)) return;
     const { input, target } = raw;

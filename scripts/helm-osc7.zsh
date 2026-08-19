@@ -77,3 +77,29 @@ if [[ -n "$ZSH_VERSION" ]] && [[ -z "$_HELM_SUBMIT_LOADED" ]]; then
   # Tell Helm the widget is live, so it does not also try to intercept keys.
   printf '\e]7375;1\a'
 fi
+
+# Report the shell's own vocabulary — builtins, reserved words, autoloaded
+# functions and your aliases — so routing knows what this shell can actually
+# run. A hand-maintained list in TypeScript cannot know that `print` and
+# `setopt` are zsh builtins, let alone that `gs` is your alias for git status,
+# and every word it misses costs an API turn and a permission prompt.
+if [[ -n "$ZSH_VERSION" ]] && [[ -z "$_HELM_VOCAB_LOADED" ]]; then
+  _HELM_VOCAB_LOADED=1
+
+  _helm_report_vocabulary() {
+    local words
+    words=$(
+      {
+        print -r -- ${(k)builtins}
+        print -r -- ${(k)reswords}
+        print -r -- ${(k)functions}
+        print -r -- ${(k)aliases}
+        print -r -- ${(k)commands}
+      } 2>/dev/null | tr ' ' '\n' | sort -u | tr '\n' ' '
+    )
+    [[ -z "$words" ]] && return
+    printf '\e]7376;%s\a' "$(printf '%s' "$words" | base64 | tr -d '\n')"
+  }
+
+  _helm_report_vocabulary
+fi

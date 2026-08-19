@@ -107,6 +107,16 @@ export default function App(): JSX.Element {
     const wire = (s: Session): void => {
       s.term.open(s.host);
 
+      s.term.parser.registerOscHandler(7376, (data) => {
+        try {
+          const words = atob(data).split(/\s+/).filter(Boolean);
+          if (words.length > 0) window.helm.route.vocabulary(words);
+        } catch {
+          /* malformed vocabulary report */
+        }
+        return true;
+      });
+
       s.term.parser.registerOscHandler(7375, () => {
         s.widget = true;
         return true;
