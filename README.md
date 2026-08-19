@@ -105,17 +105,47 @@ grant survives. Create the identity once — instructions are at the top of
 `postinstall` runs `electron-builder install-app-deps` for this. A
 `NODE_MODULE_VERSION` mismatch at startup means that step didn't run.
 
+## Standing constraints
+
+These hold across every phase. A change that violates one is wrong even if the
+phase it belongs to is "done".
+
+**Always available.** The terminal is the product. It must be usable the instant
+the window appears, and must never be gated on anything else finishing its
+startup — not the agent SDK, not a network call, not credential refresh. The pty
+spawns first and independently; the agent initialises lazily, in the background,
+and a failure there degrades Helm to a plain terminal rather than breaking it.
+Once packaged, Helm stays resident so it is there when reached for rather than
+cold-starting: the window hides instead of quitting, and a global hotkey brings
+it back.
+
+**Helm is its own application.** Not an Electron shell wearing a Helm label.
+That means its own bundle identity (`com.wpf002.helm`), its own name in the menu
+bar, Dock, and About panel, its own icon, its own user-data directory, and its
+own process names — nothing user-visible reading "Electron". Electron is the
+runtime, the way Chromium is Chrome's runtime; it is an implementation detail,
+never the identity. (Leaving Electron altogether is a different project and
+would contradict the first non-negotiable — it is not what this constraint
+means.)
+
 ## Roadmap
 
 Each phase ends in something usable. Stop at any of them.
 
+**Phase 0 — auth gate.** Confirm how the SDK authenticates before building on
+it. *Done.* Resolved to a metered `ANTHROPIC_API_KEY` in `.env`: the OAuth
+record in the keychain had no refresh token, so subscription credentials could
+not carry. One trivial turn cost $0.16, almost all of it the ~26k-token system
+prompt, which is why the engine trims that aggressively.
+
 **Phase 1 — terminal.** xterm.js over node-pty, OSC 7 cwd tracking, resize,
-window chrome. No agent. Ship point: a terminal you'd actually use.
+window chrome. No agent. *Done.* Ship point: a terminal you'd actually use.
 Kill gate: if you don't prefer it to iTerm, the rest doesn't matter.
 
 **Phase 2 — agent, single surface.** Agent SDK wired into the same scroll
 container. Explicit `$`/`?` prefixes only, no inference. Permission prompts are
-raw JSON.
+raw JSON. The agent must initialise lazily so it never delays the shell, per the
+always-available constraint.
 Kill gate: unified scrollback has to beat two windows. If it doesn't, you've
 rebuilt the desktop app worse.
 
@@ -129,8 +159,16 @@ out-of-scope flagging, session-scoped persistence.
 Kill gate: this is the one feature the official app doesn't have. If it doesn't
 change how you approve things, the project's differentiator was imaginary.
 
-**Phase 5 — sessions.** Multiple concurrent sessions, transcript persistence,
-resume. Only worth it if Phases 1–4 survived.
+**Phase 5 — package, install, and identity.** Generate the icon and rasterize
+the full `.iconset` ladder into `icon.icns`. Build, sign with the stable
+self-signed identity, install to `/Applications`, and pin to the Dock without
+stacking duplicates. This phase is where both standing constraints are finally
+paid off: the app becomes resident (window close hides rather than quits, global
+`Cmd+Shift+H` toggles it) and fully self-identifying (own icon, bundle id, and
+process names). Verify no user-visible surface reads "Electron".
+
+**Phase 6 — sessions.** Multiple concurrent sessions, transcript persistence,
+resume. Only worth it if Phases 1-5 survived.
 
 ## Conventions
 
