@@ -3,8 +3,10 @@
 
 import { ipcMain, type BrowserWindow } from 'electron';
 import { spawnPty, type PtySession } from '@helm/shell';
+import { createSession, type AgentSession } from '@helm/engine';
 import { IPC, type SessionCreateOptions, type SessionInfo } from '@helm/shared';
 import type { HelmEnv } from './env.js';
+import { clearPermissionState, requestPermission, resolvePermission } from './permissions.js';
 
 /**
  * Phase 1 runs exactly one persistent shell. The map is keyed by session id
@@ -62,9 +64,28 @@ function systemLocale(): string {
   return 'en_US';
 }
 
+/**
+ * The agent session, created lazily and never awaited on the startup path. The
+ * terminal must be usable the instant the window appears; if the agent is slow
+ * or fails outright, Helm degrades to a plain terminal rather than blocking.
+ */
+let agent: AgentSession | null = null;
+let agentStarting: Promise<AgentSession | null> | null = null;
+/** Tool name by request id, so a session-scoped grant knows what it granted. */
+const requestTools = new Map<string, string>();
+
 export function killAllSessions(): void {
   for (const session of sessions.values()) session.kill();
   sessions.clear();
+}
+
+export async function disposeAgent(): Promise<void> {
+  clearPermissionState();
+  requestTools.clear();
+  const current = agent;
+  agent = null;
+  agentStarting = null;
+  if (current) await current.dispose();
 }
 
 export function registerIpc(win: BrowserWindow, env: HelmEnv): void {
@@ -111,4 +132,76 @@ export function registerIpc(win: BrowserWindow, env: HelmEnv): void {
   ipcMain.handle(IPC.SessionList, (): SessionInfo[] =>
     [...sessions.values()].map((s) => ({ id: s.id, shell: env.shell, cwd: s.cwd() })),
   );
+
+  /** Creates the agent on first use. Cheap: the SDK subprocess spawns lazily. */
+  const ensureAgent = async (): Promise<AgentSession | null> => {
+    if (agent) return agent;
+    if (agentStarting) return agentStarting;
+
+    agentStarting = createSession(
+      {
+        homeRoot: env.homeRoot,
+        extraRoots: env.extraRoots,
+        permissionMode: env.permissionMode,
+        ...(env.model ? { model: env.model } : {}),
+      },
+      {
+        onEvent: (event) => send(IPC.AgentStream, event),
+        requestPermission: async (request) => {
+          requestTools.set(request.id, request.toolName);
+          const decision = await requestPermission(win, request);
+          requestTools.delete(request.id);
+          return decision;
+        },
+      },
+    )
+      .then((created) => {
+        agent = created;
+        return created;
+      })
+      .catch((error: unknown) => {
+        // A dead agent must not take the terminal with it.
+        const message = error instanceof Error ? error.message : String(error);
+        send(IPC.AgentStream, { kind: 'error', sessionId: '', message });
+        agentStarting = null;
+        return null;
+      });
+
+    return agentStarting;
+  };
+
+  ipcMain.on(IPC.AgentPrompt, (_event, raw: unknown) => {
+    if (typeof raw !== 'string' || raw.length === 0) return;
+    void (async () => {
+      const session = await ensureAgent();
+      if (!session) return;
+      try {
+        await session.prompt(raw);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        send(IPC.AgentStream, { kind: 'error', sessionId: session.id, message });
+        send(IPC.AgentStream, { kind: 'turn_end', sessionId: session.id });
+      }
+    })();
+  });
+
+  ipcMain.on(IPC.AgentInterrupt, () => {
+    void agent?.interrupt();
+  });
+
+  ipcMain.on(IPC.PermissionResolve, (_event, raw: unknown) => {
+    if (!isRecord(raw)) return;
+    const { id, behavior, persist } = raw;
+    if (typeof id !== 'string') return;
+    if (behavior !== 'allow' && behavior !== 'deny') return;
+    resolvePermission(
+      {
+        id,
+        behavior,
+        persist: persist === true,
+        ...(typeof raw['reason'] === 'string' ? { reason: raw['reason'] } : {}),
+      },
+      requestTools.get(id),
+    );
+  });
 }

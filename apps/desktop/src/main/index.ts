@@ -5,7 +5,7 @@
 import { app, BrowserWindow, Menu, nativeTheme, shell } from 'electron';
 import { join } from 'node:path';
 import { loadEnv } from './env.js';
-import { killAllSessions, registerIpc } from './ipc.js';
+import { disposeAgent, killAllSessions, registerIpc } from './ipc.js';
 
 /** Matches the renderer's --helm-bg so there is no white flash on show. */
 const BACKGROUND = '#0d1017';
@@ -117,8 +117,12 @@ app.whenReady().then(() => {
 // quits, which is what a terminal is expected to do.
 app.on('window-all-closed', () => {
   killAllSessions();
+  void disposeAgent();
   if (process.platform !== 'darwin') app.quit();
   else app.quit();
 });
 
-app.on('before-quit', killAllSessions);
+app.on('before-quit', () => {
+  killAllSessions();
+  void disposeAgent();
+});

@@ -61,7 +61,7 @@ body {
 }
 
 .titlebar__badge {
-  margin-left: auto;
+  margin-left: 8px;
   color: var(--helm-warn);
   font-size: 11px;
 }
@@ -84,4 +84,10 @@ body {
 .terminal .xterm-viewport::-webkit-scrollbar-thumb {
   background: #262d3a;
   border-radius: 5px;
+}
+
+.titlebar__busy {
+  margin-left: auto;
+  color: #e0c07a;
+  font-size: 11px;
 }

@@ -51,6 +51,8 @@ export interface HelmEnv {
   homeRoot: string;
   extraRoots: string[];
   permissionMode: 'off' | 'prompt' | 'auto';
+  /** Overrides the engine's default model. Unset means Sonnet. */
+  model: string | undefined;
   envFile: string | undefined;
 }
 
@@ -71,6 +73,7 @@ export function loadEnv(startDir: string): HelmEnv {
     homeRoot: read('HELM_HOME_ROOT') || homedir(),
     extraRoots: rawRoots.split(':').filter((r) => r.length > 0),
     permissionMode,
+    model: read('HELM_MODEL'),
     envFile,
   };
 }

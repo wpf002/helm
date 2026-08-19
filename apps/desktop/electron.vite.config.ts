@@ -18,7 +18,14 @@ export default defineConfig({
     build: {
       rollupOptions: {
         input: { index: 'src/main/index.ts' },
-        external: ['electron', 'node-pty', /^node:/],
+        // The Agent SDK must stay external: bundling it breaks how it locates
+        // its own CLI binary, and it is ESM that only loads via dynamic import.
+        external: [
+          'electron',
+          'node-pty',
+          '@anthropic-ai/claude-agent-sdk',
+          /^node:/,
+        ],
         output: { format: 'cjs', entryFileNames: '[name].cjs' },
       },
     },
