@@ -4,7 +4,7 @@
 import { ipcMain, type BrowserWindow } from 'electron';
 import { spawnPty, type PtySession } from '@helm/shell';
 import { createSession, routeInputWithFactors, scanPathBinaries, type AgentSession } from '@helm/engine';
-import { IPC, type SessionCreateOptions, type SessionInfo } from '@helm/shared';
+import { IPC, type InputRoute, type SessionCreateOptions, type SessionInfo } from '@helm/shared';
 import type { HelmEnv } from './env.js';
 import { clearPermissionState, requestPermission, resolvePermission } from './permissions.js';
 import { logRouting, recordFor } from './routing-log.js';
@@ -205,6 +205,16 @@ export function registerIpc(win: BrowserWindow, env: HelmEnv): void {
         send(IPC.AgentStream, { kind: 'turn_end', sessionId: session.id });
       }
     })();
+  });
+
+  ipcMain.handle(IPC.InputSubmit, (_event, raw: unknown): InputRoute => {
+    const line = typeof raw === 'string' ? raw : '';
+    const { route, factors } = routeInputWithFactors(line, pathBinaries);
+    const trimmed = line.trim();
+    const explicit = trimmed.startsWith('$') || trimmed.startsWith('?');
+    // 'live' means inference actually decided this one.
+    void logRouting(recordFor(line, route, factors, explicit ? 'prefix' : 'live'));
+    return route;
   });
 
   ipcMain.on(IPC.RouteObserve, (_event, raw: unknown) => {

@@ -56,6 +56,9 @@ export default function App(): JSX.Element {
   const atLineStartRef = useRef(true);
   const writerRef = useRef<AgentWriter | null>(null);
   const permissionRef = useRef<PermissionRequest | null>(null);
+  // True once the zsh widget announces itself. While it is live, zsh owns the
+  // line editor and Helm must not intercept keystrokes as well.
+  const widgetRef = useRef(false);
 
   const [cwd, setCwd] = useState('');
   const [exitCode, setExitCode] = useState<number | null>(null);
@@ -89,6 +92,38 @@ export default function App(): JSX.Element {
 
     const writer = new AgentWriter(term);
     writerRef.current = writer;
+
+    /**
+     * The shell's line editor handed us a finished line. Route it: shell-bound
+     * lines are written back with a newline (still bound to accept-line, so no
+     * loop), prompts go to the agent.
+     */
+    const submitLine = async (line: string): Promise<void> => {
+      const route = await window.helm.route.submit(line);
+      if (route.target === 'shell') {
+        const id = sessionRef.current;
+        if (id) window.helm.pty.write(id, route.command + '\n');
+        return;
+      }
+      if (!route.prompt) return;
+      writer.echoPrompt(route.prompt);
+      setBusy(true);
+      window.helm.agent.prompt(route.prompt);
+    };
+
+    term.parser.registerOscHandler(7375, () => {
+      widgetRef.current = true;
+      return true;
+    });
+
+    term.parser.registerOscHandler(7374, (data) => {
+      try {
+        void submitLine(atob(data));
+      } catch {
+        // A malformed submission is dropped rather than guessed at.
+      }
+      return true;
+    });
 
     // Helm's own sequence: zsh reports each command as it runs so routing can
     // be measured against what was actually typed. Consumed, not forwarded.
@@ -254,8 +289,10 @@ export default function App(): JSX.Element {
           continue;
         }
 
-        // Prefix routing, only at the start of a line.
-        if (atLineStartRef.current) {
+        // Prefix routing, only at the start of a line — and only when the zsh
+        // widget is absent. With the widget live, zsh owns the buffer and
+        // grabbing keys here would fight it.
+        if (atLineStartRef.current && !widgetRef.current) {
           if (char === '?') {
             flush();
             composeRef.current = '';

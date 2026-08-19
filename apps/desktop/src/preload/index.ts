@@ -14,6 +14,7 @@ import {
   type SessionCreateOptions,
   type SessionInfo,
   type StreamEvent,
+  type InputRoute,
 } from '@helm/shared';
 
 /** Every listener hands back its own unsubscribe so React effects stay clean. */
@@ -71,6 +72,9 @@ const api = {
   },
 
   route: {
+    /** Routes a submitted line. Returns where it should go. */
+    submit: (line: string): Promise<InputRoute> => ipcRenderer.invoke(IPC.InputSubmit, line),
+
     /**
      * Reports what the user ran and where it went, so routeInput()'s verdict
      * can be logged against reality. Observation only — it changes nothing.

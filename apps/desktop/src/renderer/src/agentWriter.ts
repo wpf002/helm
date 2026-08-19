@@ -70,6 +70,17 @@ export class AgentWriter {
     this.streaming = true;
   }
 
+  /**
+   * Renders the submitted prompt. Used when the shell's line editor owned the
+   * text and cleared it on submit, so the scrollback would otherwise lose it.
+   */
+  echoPrompt(text: string): void {
+    this.closeLine();
+    this.raw(`${GUTTER}${sgr('38;5;110')}${sgr('1')}${text}${RESET}\r\n`);
+    this.atLineStart = true;
+    this.streaming = true;
+  }
+
   handle(event: StreamEvent): void {
     switch (event.kind) {
       case 'text':

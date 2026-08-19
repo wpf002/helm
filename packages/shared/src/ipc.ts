@@ -5,6 +5,7 @@ export const IPC = {
   PermissionResolve: 'permission:resolve',
   PtyWrite: 'pty:write',
   PtyResize: 'pty:resize',
+  InputSubmit: 'input:submit',
   RouteObserve: 'route:observe',
   SessionNew: 'session:new',
   SessionList: 'session:list',

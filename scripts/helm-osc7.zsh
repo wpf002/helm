@@ -45,3 +45,35 @@ if [[ -n "$ZSH_VERSION" ]] && [[ -z "$_HELM_PREEXEC_LOADED" ]]; then
 
   add-zsh-hook preexec _helm_report_command
 fi
+
+# Hand Helm the finished command line at the moment you press Enter.
+#
+# This is what lets you type plain English and get an answer without losing the
+# shell. zsh keeps the line editor — history, completion, Ctrl+R, everything —
+# and Helm only intercepts submission, at which point it has the final line
+# rather than a guess reconstructed from keystrokes.
+#
+# Enter (^M) runs through the widget. Helm executes shell-bound lines by
+# writing them back followed by ^J, which is still bound to accept-line, so
+# there is no loop.
+if [[ -n "$ZSH_VERSION" ]] && [[ -z "$_HELM_SUBMIT_LOADED" ]]; then
+  _HELM_SUBMIT_LOADED=1
+
+  _helm_submit() {
+    if [[ -z "$BUFFER" ]]; then
+      zle accept-line
+      return
+    fi
+    local encoded
+    encoded=$(printf '%s' "$BUFFER" | base64 | tr -d '\n')
+    BUFFER=""
+    zle redisplay
+    printf '\e]7374;%s\a' "$encoded"
+  }
+
+  zle -N _helm_submit
+  bindkey '^M' _helm_submit
+
+  # Tell Helm the widget is live, so it does not also try to intercept keys.
+  printf '\e]7375;1\a'
+fi
