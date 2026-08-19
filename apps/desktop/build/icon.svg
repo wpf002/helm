@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Helm — a ship's wheel. Monochrome on a dark ground, per the brief. -->
+  <defs>
+    <linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#171c26"/>
+      <stop offset="1" stop-color="#0b0e14"/>
+    </linearGradient>
+    <linearGradient id="metal" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e6ebf2"/>
+      <stop offset="1" stop-color="#a8b2c1"/>
+    </linearGradient>
+  </defs>
+
+  <!-- macOS squircle-ish ground -->
+  <rect x="0" y="0" width="1024" height="1024" rx="228" ry="228" fill="url(#ground)"/>
+  <rect x="6" y="6" width="1012" height="1012" rx="224" ry="224" fill="none"
+        stroke="#2a3342" stroke-width="3" opacity="0.7"/>
+
+  <g transform="translate(512 512)" stroke="url(#metal)" fill="none" stroke-linecap="round">
+    <!-- eight handles, drawn through the hub so they read as continuous spokes -->
+    <g stroke-width="30">
+      <line x1="0" y1="-388" x2="0" y2="388"/>
+      <line x1="-388" y1="0" x2="388" y2="0"/>
+      <line x1="-274" y1="-274" x2="274" y2="274"/>
+      <line x1="-274" y1="274" x2="274" y2="-274"/>
+    </g>
+
+    <!-- handle grips: the thickened outer tips of each spoke -->
+    <g stroke-width="52">
+      <line x1="0" y1="-378" x2="0" y2="-306"/>
+      <line x1="0" y1="378" x2="0" y2="306"/>
+      <line x1="-378" y1="0" x2="-306" y2="0"/>
+      <line x1="378" y1="0" x2="306" y2="0"/>
+      <line x1="-267" y1="-267" x2="-216" y2="-216"/>
+      <line x1="267" y1="267" x2="216" y2="216"/>
+      <line x1="-267" y1="267" x2="-216" y2="216"/>
+      <line x1="267" y1="-267" x2="216" y2="-216"/>
+    </g>
+
+    <!-- rim -->
+    <circle r="252" stroke-width="46"/>
+    <!-- inner bead, keeps the centre from reading as a solid disc at 16px -->
+    <circle r="150" stroke-width="20" opacity="0.85"/>
+  </g>
+
+  <!-- hub -->
+  <circle cx="512" cy="512" r="66" fill="url(#metal)"/>
+  <circle cx="512" cy="512" r="26" fill="#0b0e14"/>
+</svg>

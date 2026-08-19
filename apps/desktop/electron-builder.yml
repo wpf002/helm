@@ -7,6 +7,7 @@ files:
   - out/**
   - package.json
 mac:
+  icon: build/icon.icns
   category: public.app-category.developer-tools
   target:
     - dir
@@ -21,4 +22,7 @@ mac:
     NSDocumentsFolderUsageDescription: Helm reads and edits files you point it at.
     NSDownloadsFolderUsageDescription: Helm reads and edits files you point it at.
 asarUnpack:
+  # Both spawn real processes and resolve files relative to their own location,
+  # which does not work from inside an asar archive.
   - '**/node_modules/node-pty/**'
+  - '**/node_modules/@anthropic-ai/claude-agent-sdk/**'
