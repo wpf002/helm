@@ -52,8 +52,6 @@ const DEFAULT_MODEL = 'claude-sonnet-5';
  */
 const DISALLOWED_TOOLS = [
   'Task',
-  'WebFetch',
-  'WebSearch',
   'NotebookEdit',
   'TodoWrite',
   'ExitPlanMode',
@@ -61,9 +59,11 @@ const DISALLOWED_TOOLS = [
 ];
 
 const SYSTEM_APPEND =
-  'You are running inside Helm, a terminal. Output is rendered as plain text in ' +
-  'a scrollback buffer shared with the user\'s shell. Keep replies short and ' +
-  'concrete. Do not use markdown headings or tables.';
+  'You are running inside Helm, a terminal. Output is rendered in a scrollback ' +
+  'buffer shared with the user\'s shell, so keep replies short and concrete and ' +
+  'never use tables. Short **bold** labels, `code`, and "- " bullets render ' +
+  'well; headings and nested lists do not. Lead with the answer. When you run ' +
+  'commands to find something out, report what you learned, not the commands.';
 
 /**
  * Hands prompts to the SDK's streaming-input mode. Streaming input is what makes
