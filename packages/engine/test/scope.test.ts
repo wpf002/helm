@@ -102,6 +102,20 @@ describe('scope containment', () => {
       expect((await verdict('Bash', { command })).outOfScope).toBe(true);
     });
 
+    it.each([
+      'git status', 'git log --oneline -5', 'git diff HEAD~1', 'npm view electron version',
+      'pnpm outdated', 'docker ps', 'brew list', 'node --version',
+    ])('treats %j as read-only', (command) => {
+      expect(classifyCommand(command)).toBe('read-only');
+    });
+
+    it.each([
+      'git push origin main', 'git commit -m x', 'npm install', 'pnpm add left-pad',
+      'docker run -it ubuntu', 'brew install jq', 'git checkout -b feature',
+    ])('treats %j as mutating', (command) => {
+      expect(classifyCommand(command)).toBe('mutating');
+    });
+
     it('classifies directly', () => {
       expect(classifyCommand('uptime')).toBe('read-only');
       expect(classifyCommand('cat a.txt | wc -l')).toBe('read-only');

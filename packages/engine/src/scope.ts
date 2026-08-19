@@ -43,6 +43,32 @@ const READ_ONLY_COMMANDS = new Set([
   'ls', 'tree', 'pwd', 'readlink',
 ]);
 
+/**
+ * Tools where the subcommand decides. `git status` and `npm view` only report;
+ * `git push` and `npm install` do not. Classifying the whole binary either way
+ * would be wrong, and treating them all as mutating meant the most common
+ * informational commands prompted every time.
+ */
+const READ_ONLY_SUBCOMMANDS: Record<string, Set<string>> = {
+  git: new Set([
+    'status', 'log', 'diff', 'show', 'branch', 'remote', 'tag', 'blame',
+    'describe', 'shortlog', 'ls-files', 'ls-remote', 'rev-parse', 'rev-list',
+    'cat-file', 'reflog', 'stash', 'whatchanged', 'grep', 'count-objects',
+  ]),
+  npm: new Set(['view', 'ls', 'list', 'outdated', 'search', 'info', 'why', 'ping', 'root', 'prefix', 'bin']),
+  pnpm: new Set(['view', 'ls', 'list', 'outdated', 'why', 'root', 'bin', 'licenses']),
+  yarn: new Set(['info', 'list', 'outdated', 'why']),
+  brew: new Set(['list', 'info', 'search', 'outdated', 'deps', 'config', 'doctor', '--version']),
+  docker: new Set(['ps', 'images', 'logs', 'inspect', 'version', 'info', 'stats', 'top', 'port', 'history']),
+  kubectl: new Set(['get', 'describe', 'logs', 'top', 'explain', 'version', 'config', 'api-resources']),
+  systemctl: new Set(['status', 'list-units', 'is-active', 'is-enabled', 'show']),
+  cargo: new Set(['tree', 'search', 'metadata', 'version']),
+  go: new Set(['version', 'env', 'list']),
+  python3: new Set(['--version', '-V']),
+  node: new Set(['--version', '-v']),
+  pip: new Set(['list', 'show', 'freeze', 'search']),
+};
+
 /** Anything here can change state even when the head looks harmless. */
 const MUTATING_PATTERN =
   /(^|\s)(>{1,2}(?!\s*\/dev\/null))|(^|\s)(rm|mv|cp|mkdir|rmdir|chmod|chown|ln|touch|tee|dd|kill|killall|pkill|shutdown|reboot|sudo|installer|defaults\s+write|launchctl\s+(load|unload|bootout))(\s|$)|(\s)-i(\s|$)|--in-place|-delete|-exec/;
@@ -69,7 +95,16 @@ export function classifyCommand(command: string): CommandKind {
     let index = 0;
     while (index < tokens.length - 1 && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[index] ?? '')) index++;
     const bare = (tokens[index] ?? '').replace(/^.*\//, '');
-    if (!READ_ONLY_COMMANDS.has(bare)) return 'mutating';
+    if (READ_ONLY_COMMANDS.has(bare)) continue;
+
+    const subcommands = READ_ONLY_SUBCOMMANDS[bare];
+    if (subcommands) {
+      // The first token that is not a flag is the subcommand.
+      const sub = tokens.slice(index + 1).find((tok) => !tok.startsWith('-')) ?? tokens[index + 1] ?? '';
+      if (subcommands.has(sub)) continue;
+      return 'mutating';
+    }
+    return 'mutating';
   }
   return 'read-only';
 }
