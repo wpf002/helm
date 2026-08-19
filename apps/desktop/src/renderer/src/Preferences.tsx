@@ -111,6 +111,38 @@ export function Preferences({
         </section>
 
         <section className="pref__section">
+          <h4 className="pref__title">Approvals</h4>
+          <label className="pref__row">
+            <select
+              className="pref__select"
+              value={config.permissionMode}
+              onChange={(e) =>
+                onChange({ permissionMode: e.target.value as 'off' | 'prompt' | 'auto' })
+              }
+            >
+              <option value="prompt">Ask before anything out of scope</option>
+              <option value="auto">Only ask before changes outside my roots</option>
+              <option value="off">Never ask</option>
+            </select>
+            <span>
+              <span className="pref__label">
+                {config.permissionMode === 'prompt' && 'Every out-of-scope call stops for a decision.'}
+                {config.permissionMode === 'auto' && 'Reads and in-scope work run silently.'}
+                {config.permissionMode === 'off' && 'Nothing is gated. The title bar turns red.'}
+              </span>
+              <span className="pref__hint">
+                {config.permissionMode === 'auto' &&
+                  'Anything that could change a file outside your roots still stops.'}
+                {config.permissionMode === 'off' &&
+                  'With Full Disk Access granted this reaches your whole machine.'}
+                {config.permissionMode === 'prompt' &&
+                  'Safest, and the noisiest.'}
+              </span>
+            </span>
+          </label>
+        </section>
+
+        <section className="pref__section">
           <h4 className="pref__title">Agent</h4>
           <Toggle
             label="Notify when hidden"

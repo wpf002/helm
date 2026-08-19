@@ -573,3 +573,14 @@ body {
   font-family: SFMono-Regular, "SF Mono", Menlo, monospace;
   font-size: 11px;
 }
+
+.pref__select {
+  font: inherit;
+  font-size: 12px;
+  background: #0e131b;
+  border: 1px solid #2a3342;
+  color: #cfd6e0;
+  border-radius: 6px;
+  padding: 5px 7px;
+  max-width: 230px;
+}

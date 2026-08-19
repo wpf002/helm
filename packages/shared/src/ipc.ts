@@ -97,6 +97,12 @@ export interface UsageTotals {
 }
 
 export interface HelmConfig {
+  /**
+   * 'prompt' asks for anything out of scope. 'auto' runs in-scope and
+   * read-only calls silently and only stops for out-of-scope writes. 'off'
+   * asks for nothing at all.
+   */
+  permissionMode: 'off' | 'prompt' | 'auto';
   fontSize: number;
   copyOnSelect: boolean;
   middleClickPaste: boolean;

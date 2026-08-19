@@ -280,7 +280,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null, env: HelmEnv)
       {
         homeRoot: env.homeRoot,
         extraRoots: env.extraRoots,
-        permissionMode: env.permissionMode,
+        // Preferences wins over .env once the user has set it there.
+        permissionMode: loadConfig().permissionMode ?? env.permissionMode,
         ...(env.model ? { model: env.model } : {}),
         ...(claudeExecutable ? { pathToClaudeCodeExecutable: claudeExecutable } : {}),
       },

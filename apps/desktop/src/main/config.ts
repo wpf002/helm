@@ -11,6 +11,8 @@ import { dirname, join } from 'node:path';
 export const CONFIG_PATH = join(homedir(), '.helm', 'config.json');
 
 export interface HelmConfig {
+  /** Overrides HELM_PERMISSION_MODE once set from Preferences. */
+  permissionMode: 'off' | 'prompt' | 'auto';
   fontSize: number;
   /** Copy the selection to the clipboard as soon as it is made. */
   copyOnSelect: boolean;
@@ -24,6 +26,7 @@ export interface HelmConfig {
 }
 
 const DEFAULTS: HelmConfig = {
+  permissionMode: 'prompt',
   fontSize: 13,
   copyOnSelect: true,
   middleClickPaste: true,
@@ -44,7 +47,10 @@ export function loadConfig(): HelmConfig {
     const record = typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : {};
     const bool = (key: keyof HelmConfig): boolean =>
       typeof record[key] === 'boolean' ? (record[key] as boolean) : (DEFAULTS[key] as boolean);
+    const mode = record['permissionMode'];
     return {
+      permissionMode:
+        mode === 'off' || mode === 'auto' || mode === 'prompt' ? mode : DEFAULTS.permissionMode,
       fontSize: clamp(record['fontSize'], 8, 32, DEFAULTS.fontSize),
       copyOnSelect: bool('copyOnSelect'),
       middleClickPaste: bool('middleClickPaste'),

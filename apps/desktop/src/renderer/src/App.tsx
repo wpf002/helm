@@ -343,7 +343,13 @@ export default function App(): JSX.Element {
     const offStream = window.helm.agent.onStream((event) => {
       const owner = byId(agentOwnerRef.current ?? '') ?? active();
       owner?.writer.handle(event);
-      if (event.kind === 'turn_end') setBusy(false);
+      if (event.kind === 'turn_end') {
+        setBusy(false);
+        // Hand the terminal back. Without this the readout just ends and you
+        // are left staring at output with no prompt, which does not read as a
+        // terminal any more. An empty line makes zsh redraw its prompt.
+        if (owner?.id && owner.exited === null) window.helm.pty.write(owner.id, '\n');
+      }
     });
 
     const answerPermission = (behavior: 'allow' | 'deny', persist: boolean): void => {
