@@ -233,6 +233,32 @@ Without it Helm still works, but only the `?` prefix reaches the agent — so th
 title bar says so and Preferences offers to install it. Nothing is written to
 your `.zshrc` unless you ask.
 
+## Token cost
+
+```bash
+pnpm tokens:report
+```
+
+Measured, not assumed — roughly **$0.011 a turn**, about $1.10 per hundred:
+
+```
+turn  fresh   cached   out    cost
+   1   3077    17506     3   $0.0168
+   2     52    20581     3   $0.0064
+   3    180    41318    77   $0.0142
+```
+
+The intuitive optimisations are wrong here. Swapping the `claude_code` preset
+for a hand-written minimal prompt saves only 9% of input tokens, and both
+trimming tools and changing the prompt **invalidate the prompt cache** — a cold
+turn measured at $0.0555 against $0.0163 warm. Configuration changes cost more
+than they save until the cache re-warms.
+
+The levers that do matter, in order: the model (Opus with a 1M context measured
+at $0.164 for a trivial turn, fifteen times Sonnet), keeping the system prompt
+and tool set *stable* so the cache stays warm, and reusing one session across
+turns rather than starting fresh ones. All three are already how Helm is built.
+
 ## Tests
 
 ```bash

@@ -17,7 +17,8 @@
     "lint:scripts": "eslint scripts eslint.config.mjs",
     "routing:report": "node scripts/routing-report.mjs",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "tokens:report": "node scripts/token-report.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9",
