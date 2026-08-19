@@ -11,7 +11,7 @@ import type { HelmEnv } from './env.js';
 import { clearPermissionState, requestPermission, resolvePermission } from './permissions.js';
 import { logRouting, recordFor } from './routing-log.js';
 import { loadConfig, saveConfig, type HelmConfig } from './config.js';
-import { readUsage, recordUsage } from './usage.js';
+import { estimateCost, readUsage, recordUsage } from './usage.js';
 import { hookStatus, installHook } from './shell-hook.js';
 import { checkForUpdates } from './update.js';
 import {
@@ -292,7 +292,14 @@ export function registerIpc(getWindow: () => BrowserWindow | null, env: HelmEnv)
           if (activeSessionId) recordAgent(activeSessionId, event);
           if (event.kind === 'turn_end') {
             if (event.usage) {
-              send(IPC.UsageChanged, recordUsage(event.usage, env.model ?? 'claude-sonnet-5'));
+              const model = env.model ?? 'claude-sonnet-5';
+              send(IPC.UsageChanged, recordUsage(event.usage, model));
+              // Price it here, where the table lives, so the renderer never
+              // has to keep a second copy in sync.
+              event = {
+                ...event,
+                usage: { ...event.usage, costUsd: estimateCost(event.usage, model) },
+              };
             }
             // Residency means a turn can finish with nothing on screen, and a
             // turn that finishes silently may as well not have finished.

@@ -254,6 +254,13 @@ trimming tools and changing the prompt **invalidate the prompt cache** — a col
 turn measured at $0.0555 against $0.0163 warm. Configuration changes cost more
 than they save until the cache re-warms.
 
+A web search costs about four times a plain turn — measured at $0.0398 against
+$0.011 — because the fetched pages enter the context. That cost does **not**
+persist: the turn after a search measured $0.0075, so context returns to normal
+rather than carrying the pages forward. Each turn prints its own cost for this
+reason, since the variation between turns is larger than the daily total
+suggests.
+
 The levers that do matter, in order: the model (Opus with a 1M context measured
 at $0.164 for a trivial turn, fifteen times Sonnet), keeping the system prompt
 and tool set *stable* so the cache stays warm, and reusing one session across

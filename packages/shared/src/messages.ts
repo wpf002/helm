@@ -17,6 +17,12 @@ export interface TokenUsage {
   output: number;
   cacheRead: number;
   cacheWrite: number;
+  /**
+   * Estimated USD for this turn, filled in by the main process where the
+   * price table lives. A search turn runs about four times a plain one, so
+   * the number belongs on the turn rather than only in a daily total.
+   */
+  costUsd?: number;
 }
 
 export type InputRoute =

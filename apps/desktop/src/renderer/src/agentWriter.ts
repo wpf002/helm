@@ -171,10 +171,11 @@ export class AgentWriter {
         this.closeLine();
         this.streaming = false;
         if (event.usage) {
-          const { input, output, cacheRead, cacheWrite } = event.usage;
+          const { input, output, cacheRead, cacheWrite, costUsd } = event.usage;
+          const cost = typeof costUsd === 'number' ? ` · $${costUsd.toFixed(4)}` : '';
           this.raw(
             `${GUTTER}${META}${input + cacheRead + cacheWrite} in / ${output} out` +
-              `${cacheRead ? ` (${cacheRead} cached)` : ''}${RESET}\r\n`,
+              `${cacheRead ? ` (${cacheRead} cached)` : ''}${cost}${RESET}\r\n`,
           );
         }
         break;
