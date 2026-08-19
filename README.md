@@ -44,6 +44,21 @@ carries no sentence punctuation goes to the shell.
 Ties break toward the agent. A misrouted prompt wastes a turn; a misrouted shell
 command can be destructive.
 
+**Decided: bare input goes to the shell, not the agent.** The Phase 2 brief said
+the opposite. Routing bare input to the agent requires Helm to own the line
+editor for every line, which costs zsh's completion, history and Ctrl+R — the
+things the Phase 1 kill gate was about — and makes typing `ls` cost an API turn,
+against the always-available constraint. `?` opens a Helm-owned compose line;
+everything else stays raw zsh. Phase 3's inference will decide bare input on
+evidence instead, and this is the conservative default until it does. To flip
+it, route the default branch of the input state machine in
+`apps/desktop/src/renderer/src/App.tsx` into compose mode.
+
+Prefix detection walks each input chunk character by character. Input arrives in
+chunks, not keystrokes — a paste delivers a whole line in one event — so
+comparing the whole payload against `'?'` only ever matches hand-typing and
+silently misroutes anything pasted.
+
 ### Permissions
 
 The Agent SDK's `canUseTool` callback fires over IPC to the renderer. Before the
