@@ -16,6 +16,9 @@ APP="apps/desktop/release/mac-arm64/Helm.app"
 
 [ -d "$APP" ] || { echo "error: $APP not found. Run pnpm package first." >&2; exit 1; }
 
+security find-certificate -c "$IDENTITY" "$HOME/Library/Keychains/login.keychain-db" >/dev/null 2>&1 || {
+  echo "error: no '$IDENTITY' identity. Run ./scripts/create-signing-identity.sh" >&2; exit 1; }
+
 codesign --force --deep --sign "$IDENTITY" \
   --entitlements apps/desktop/build/entitlements.mac.plist \
   "$APP"

@@ -23,17 +23,21 @@ pnpm --filter @helm/desktop exec electron-builder --mac --dir
 # The Full Disk Access grant is keyed to the code signature. electron-builder
 # signs ad-hoc by default, producing a fresh signature every build, and macOS
 # silently drops the grant each time. Signing with a stable self-signed
-# identity keeps it. Creating that identity is a one-time manual Keychain
-# step — see the header of scripts/sign-dev.sh.
+# identity keeps it. create-signing-identity.sh makes that identity without
+# admin rights or any manual Keychain work.
 IDENTITY="${HELM_SIGN_IDENTITY:-Helm Dev}"
-if security find-identity -v -p codesigning 2>/dev/null | grep -qF "$IDENTITY"; then
+# Create it on first run so a fresh clone does not silently fall back to
+# ad-hoc signing and lose Full Disk Access on every rebuild.
+./scripts/create-signing-identity.sh
+# Test for the certificate, not `find-identity -p codesigning`: that omits
+# identities with no trust settings, which codesign accepts perfectly well.
+if security find-certificate -c "$IDENTITY" "$HOME/Library/Keychains/login.keychain-db" >/dev/null 2>&1; then
   echo "==> signing with '$IDENTITY'"
   ./scripts/sign-dev.sh
 else
-  echo "==> WARNING: no '$IDENTITY' code-signing identity found."
-  echo "    Falling back to the ad-hoc signature electron-builder produced."
-  echo "    Full Disk Access will be revoked on every rebuild until you create"
-  echo "    the identity. Instructions: head -20 scripts/sign-dev.sh"
+  echo "==> WARNING: could not create or find '$IDENTITY'."
+  echo "    Falling back to electron-builder's ad-hoc signature; Full Disk"
+  echo "    Access will be revoked on every rebuild."
 fi
 
 # ------------------------------------------------------------- install
