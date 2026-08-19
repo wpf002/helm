@@ -34,7 +34,7 @@ fi
 # what you actually ran. preexec sees the final line after history recall and
 # completion, which nothing on Helm's side can reconstruct from keystrokes.
 # Base64 keeps arbitrary quoting and UTF-8 intact inside the escape sequence.
-if [[ -n "$ZSH_VERSION" ]] && [[ -z "$_HELM_PREEXEC_LOADED" ]]; then
+if [[ "$TERM_PROGRAM" == "Helm" ]] && [[ -n "$ZSH_VERSION" ]] && [[ -z "$_HELM_PREEXEC_LOADED" ]]; then
   _HELM_PREEXEC_LOADED=1
   autoload -Uz add-zsh-hook
 
@@ -56,7 +56,11 @@ fi
 # Enter (^M) runs through the widget. Helm executes shell-bound lines by
 # writing them back followed by ^J, which is still bound to accept-line, so
 # there is no loop.
-if [[ -n "$ZSH_VERSION" ]] && [[ -z "$_HELM_SUBMIT_LOADED" ]]; then
+# Only inside Helm. This widget takes over Enter and hands the line to the app
+# instead of executing it, so in any other terminal — iTerm, Terminal.app, a
+# plain ssh session — pressing Enter would clear the line and run nothing.
+# Sourcing this file from .zshrc must be safe everywhere.
+if [[ "$TERM_PROGRAM" == "Helm" ]] && [[ -n "$ZSH_VERSION" ]] && [[ -z "$_HELM_SUBMIT_LOADED" ]]; then
   _HELM_SUBMIT_LOADED=1
 
   _helm_submit() {
@@ -83,7 +87,7 @@ fi
 # run. A hand-maintained list in TypeScript cannot know that `print` and
 # `setopt` are zsh builtins, let alone that `gs` is your alias for git status,
 # and every word it misses costs an API turn and a permission prompt.
-if [[ -n "$ZSH_VERSION" ]] && [[ -z "$_HELM_VOCAB_LOADED" ]]; then
+if [[ "$TERM_PROGRAM" == "Helm" ]] && [[ -n "$ZSH_VERSION" ]] && [[ -z "$_HELM_VOCAB_LOADED" ]]; then
   _HELM_VOCAB_LOADED=1
 
   _helm_report_vocabulary() {

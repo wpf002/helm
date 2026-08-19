@@ -45,11 +45,22 @@ export function installHook(): ShellHookStatus {
   const status = hookStatus();
   if (status.installed) return status;
   try {
-    appendFileSync(
-      status.rcPath,
-      `\n${MARKER}\n[ -f "${status.hookPath}" ] && source "${status.hookPath}"\n`,
-      'utf8',
-    );
+    // Two candidates: the checkout stays current as the hook is edited, the
+    // bundle survives the checkout being moved or deleted. First hit wins, and
+    // a missing file is simply skipped.
+    const repoHook = join(app.getAppPath(), '..', '..', 'scripts', 'helm-osc7.zsh');
+    const block = [
+      '',
+      MARKER,
+      'for _helm_hook in \\',
+      `  "${repoHook}" \\`,
+      `  "${join(process.resourcesPath ?? '', 'helm-osc7.zsh')}"; do`,
+      '  [ -f "$_helm_hook" ] && source "$_helm_hook" && break',
+      'done',
+      'unset _helm_hook',
+      '',
+    ].join('\n');
+    appendFileSync(status.rcPath, block, 'utf8');
   } catch {
     return hookStatus();
   }
