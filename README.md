@@ -211,6 +211,38 @@ than taking the terminal with it.
 `⌘T` new, `⌘W` close, `⌘⇧R` resume, plus `+` and `⟲` in the tab strip — the
 menu accelerators alone were undiscoverable.
 
+## Preferences
+
+`~/.helm/config.json` holds what you change from inside the app — font size,
+clipboard behaviour, notifications, update checks. `⌘,` opens it.
+
+Credentials and roots stay in `.env`, deliberately: they are needed before a
+window exists and are not things you toggle mid-session. A packaged app cannot
+reach the repo, so it reads `~/.helm/.env` — `install.sh` puts it there.
+
+`~/.helm/usage.json` tracks the day's token spend. The figure in the title bar
+is an estimate from published prices, not your invoice.
+
+## Shell integration
+
+`scripts/helm-osc7.zsh` is what lets you type plain English. It reports the
+finished command line on Enter, the shell's own vocabulary (builtins, aliases,
+functions, history) for routing, and the cwd via OSC 7.
+
+Without it Helm still works, but only the `?` prefix reaches the agent — so the
+title bar says so and Preferences offers to install it. Nothing is written to
+your `.zshrc` unless you ask.
+
+## Tests
+
+```bash
+pnpm test
+```
+
+133 cases. The routing corpus is the one that matters: it encodes every
+misroute found in real use, and the suite fails if the rate creeps back above
+the 5% kill gate.
+
 ## Conventions
 
 - No LLM output on any control path. The agent narrates and edits; routing,
