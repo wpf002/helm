@@ -1,3 +1,5 @@
+import type { StreamEvent } from './messages.js';
+
 export const IPC = {
   // renderer -> main
   AgentPrompt: 'agent:prompt',
@@ -8,6 +10,9 @@ export const IPC = {
   InputSubmit: 'input:submit',
   RouteObserve: 'route:observe',
   SessionNew: 'session:new',
+  SessionClose: 'session:close',
+  SessionActivate: 'session:activate',
+  SessionTranscript: 'session:transcript',
   SessionList: 'session:list',
 
   // main -> renderer
@@ -66,6 +71,11 @@ export interface SessionCreateOptions {
   cols: number;
   rows: number;
 }
+
+/** One persisted transcript entry. Replayed through the same render path. */
+export type TranscriptEntry =
+  | { t: 'pty'; d: string }
+  | { t: 'agent'; e: StreamEvent };
 
 export interface SessionInfo {
   id: string;

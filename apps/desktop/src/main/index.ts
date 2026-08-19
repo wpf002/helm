@@ -65,6 +65,27 @@ function buildMenu(): void {
         submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'hide' }, { role: 'quit' }],
       },
       {
+        label: 'Session',
+        submenu: [
+          {
+            label: 'New Session',
+            accelerator: 'CmdOrCtrl+T',
+            click: () => mainWindow?.webContents.send('helm:session-new'),
+          },
+          {
+            label: 'Close Session',
+            accelerator: 'CmdOrCtrl+W',
+            click: () => mainWindow?.webContents.send('helm:session-close'),
+          },
+          { type: 'separator' },
+          {
+            label: 'Resume Previous Session',
+            accelerator: 'CmdOrCtrl+Shift+R',
+            click: () => mainWindow?.webContents.send('helm:session-resume'),
+          },
+        ],
+      },
+      {
         label: 'Edit',
         submenu: [
           { role: 'copy' },
