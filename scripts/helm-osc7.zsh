@@ -29,3 +29,19 @@ if [[ -n "$ZSH_VERSION" ]] && [[ -z "$_HELM_OSC7_LOADED" ]]; then
   # Emit once now so the very first prompt is not blank.
   _helm_osc7_emit
 fi
+
+# Report each command to Helm so routeInput()'s verdict can be measured against
+# what you actually ran. preexec sees the final line after history recall and
+# completion, which nothing on Helm's side can reconstruct from keystrokes.
+# Base64 keeps arbitrary quoting and UTF-8 intact inside the escape sequence.
+if [[ -n "$ZSH_VERSION" ]] && [[ -z "$_HELM_PREEXEC_LOADED" ]]; then
+  _HELM_PREEXEC_LOADED=1
+  autoload -Uz add-zsh-hook
+
+  _helm_report_command() {
+    [[ -z "$1" ]] && return
+    printf '\e]7373;%s\a' "$(printf '%s' "$1" | base64 | tr -d '\n')"
+  }
+
+  add-zsh-hook preexec _helm_report_command
+fi

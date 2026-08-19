@@ -3,10 +3,11 @@
 
 import { ipcMain, type BrowserWindow } from 'electron';
 import { spawnPty, type PtySession } from '@helm/shell';
-import { createSession, type AgentSession } from '@helm/engine';
+import { createSession, routeInputWithFactors, scanPathBinaries, type AgentSession } from '@helm/engine';
 import { IPC, type SessionCreateOptions, type SessionInfo } from '@helm/shared';
 import type { HelmEnv } from './env.js';
 import { clearPermissionState, requestPermission, resolvePermission } from './permissions.js';
+import { logRouting, recordFor } from './routing-log.js';
 
 /**
  * Phase 1 runs exactly one persistent shell. The map is keyed by session id
@@ -87,6 +88,20 @@ export async function disposeAgent(): Promise<void> {
   agentStarting = null;
   if (current) await current.dispose();
 }
+
+/**
+ * Built once at startup, off the critical path. Routing observation is
+ * measurement, so it must never delay the terminal.
+ */
+let pathBinaries: Set<string> = new Set();
+void scanPathBinaries()
+  .then((found) => {
+    pathBinaries = found;
+  })
+  .catch(() => {
+    // An unreadable PATH means every line looks unknown, which routes to the
+    // agent — the safe direction.
+  });
 
 export function registerIpc(win: BrowserWindow, env: HelmEnv): void {
   const send = (channel: string, payload: unknown): void => {
@@ -190,6 +205,17 @@ export function registerIpc(win: BrowserWindow, env: HelmEnv): void {
         send(IPC.AgentStream, { kind: 'turn_end', sessionId: session.id });
       }
     })();
+  });
+
+  ipcMain.on(IPC.RouteObserve, (_event, raw: unknown) => {
+    if (!isRecord(raw)) return;
+    const { input, target } = raw;
+    if (typeof input !== 'string' || (target !== 'shell' && target !== 'agent')) return;
+    if (input.trim().length === 0) return;
+
+    const { route, factors } = routeInputWithFactors(input, pathBinaries);
+    const explicit = input.trim().startsWith('$') || input.trim().startsWith('?');
+    void logRouting(recordFor(input, route, factors, explicit ? 'prefix' : 'shadow', target));
   });
 
   ipcMain.on(IPC.AgentInterrupt, () => {

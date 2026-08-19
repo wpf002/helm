@@ -90,6 +90,17 @@ export default function App(): JSX.Element {
     const writer = new AgentWriter(term);
     writerRef.current = writer;
 
+    // Helm's own sequence: zsh reports each command as it runs so routing can
+    // be measured against what was actually typed. Consumed, not forwarded.
+    term.parser.registerOscHandler(7373, (data) => {
+      try {
+        window.helm.route.observe(atob(data), 'shell');
+      } catch {
+        // A malformed report is not worth disturbing the terminal over.
+      }
+      return true;
+    });
+
     term.parser.registerOscHandler(7, (data) => {
       const match = /^file:\/\/[^/]*(.*)$/.exec(data);
       if (match && match[1]) {
@@ -174,6 +185,7 @@ export default function App(): JSX.Element {
       }
       writer.beginTurn();
       setBusy(true);
+      window.helm.route.observe(text, 'agent');
       window.helm.agent.prompt(text);
     };
 

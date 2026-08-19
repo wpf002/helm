@@ -70,6 +70,16 @@ const api = {
     },
   },
 
+  route: {
+    /**
+     * Reports what the user ran and where it went, so routeInput()'s verdict
+     * can be logged against reality. Observation only — it changes nothing.
+     */
+    observe: (input: string, target: 'shell' | 'agent'): void => {
+      ipcRenderer.send(IPC.RouteObserve, { input, target });
+    },
+  },
+
   /** UI-only command from the application menu. Carries no capability. */
   onClear: (handler: () => void): (() => void) => subscribe('helm:clear', handler),
 };

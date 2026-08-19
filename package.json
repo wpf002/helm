@@ -14,7 +14,8 @@
     "package": "pnpm --filter @helm/desktop package",
     "sign:dev": "./scripts/sign-dev.sh",
     "postinstall": "node scripts/postinstall.mjs",
-    "lint:scripts": "eslint scripts eslint.config.mjs"
+    "lint:scripts": "eslint scripts eslint.config.mjs",
+    "routing:report": "node scripts/routing-report.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9",
