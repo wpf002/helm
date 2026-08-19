@@ -171,46 +171,31 @@ export default function App(): JSX.Element {
     };
 
     // ---- input routing -----------------------------------------------------
+    //
+    // Input arrives as chunks, not keystrokes: a paste (and any programmatic
+    // insert) delivers a whole line in one event. Routing therefore walks the
+    // chunk character by character rather than comparing the whole payload —
+    // comparing `data === '?'` only ever matches hand-typing, so a pasted
+    // command silently misroutes.
     const offInput = term.onData((data) => {
-      // 1. A pending permission owns the keyboard until answered.
+      // A pending permission owns the keyboard until answered.
       if (permissionRef.current) {
-        if (data === 'y') answerPermission('allow', false);
-        else if (data === 'a') answerPermission('allow', true);
-        else if (data === 'n' || data === CTRL_C) answerPermission('deny', false);
+        const key = data[0];
+        if (key === 'y') answerPermission('allow', false);
+        else if (key === 'a') answerPermission('allow', true);
+        else if (key === 'n' || key === CTRL_C) answerPermission('deny', false);
         return;
       }
 
-      // 2. Ctrl+C during a turn interrupts the agent, never the pty.
-      if (data === CTRL_C && writer.isStreaming) {
+      // Ctrl+C during a turn interrupts the agent, never the pty.
+      if (data.includes(CTRL_C) && writer.isStreaming) {
         window.helm.agent.interrupt();
         term.write(`\r\n${ESC}[38;5;242m^C interrupted${ESC}[0m\r\n`);
         setBusy(false);
         return;
       }
 
-      // 3. Agent compose mode: Helm owns the line and echoes it itself.
-      const composing = composeRef.current;
-      if (composing !== null) {
-        if (data === '\r' || data === '\n') {
-          term.write('\r\n');
-          submitPrompt(composing);
-        } else if (data === BACKSPACE) {
-          if (composing.length > 0) {
-            composeRef.current = composing.slice(0, -1);
-            term.write('\b \b');
-          }
-        } else if (data === CTRL_C) {
-          composeRef.current = null;
-          atLineStartRef.current = true;
-          term.write(`${ESC}[38;5;242m ^C${ESC}[0m\r\n`);
-        } else if (data >= ' ') {
-          composeRef.current = composing + data;
-          term.write(data);
-        }
-        return;
-      }
-
-      // 4. Dead shell: Enter respawns.
+      // Dead shell: Enter respawns.
       if (exitedRef.current) {
         if (data.includes('\r') || data.includes('\n')) {
           notice('[starting a new shell]');
@@ -219,25 +204,59 @@ export default function App(): JSX.Element {
         return;
       }
 
-      // 5. Prefix routing, only at the start of a line.
-      if (atLineStartRef.current) {
-        if (data === '?') {
-          composeRef.current = '';
-          term.write(`${ESC}[38;5;68m│ ${ESC}[38;5;110m`);
-          return;
+      // Shell-bound characters are batched so a paste stays one pty write.
+      let pending = '';
+      const flush = (): void => {
+        if (pending) {
+          toPty(pending);
+          pending = '';
         }
-        if (data === '$') {
-          // Swallow the marker; the rest of the line goes raw to the shell so
-          // zsh keeps its own history and completion.
-          atLineStartRef.current = false;
-          return;
+      };
+
+      for (const char of data) {
+        // Agent compose mode: Helm owns the line and echoes it itself.
+        if (composeRef.current !== null) {
+          if (char === '\r' || char === '\n') {
+            term.write('\r\n');
+            submitPrompt(composeRef.current);
+          } else if (char === BACKSPACE) {
+            if (composeRef.current.length > 0) {
+              composeRef.current = composeRef.current.slice(0, -1);
+              term.write('\b \b');
+            }
+          } else if (char === CTRL_C) {
+            composeRef.current = null;
+            atLineStartRef.current = true;
+            term.write(`${ESC}[38;5;242m ^C${ESC}[0m\r\n`);
+          } else if (char >= ' ' && char !== BACKSPACE) {
+            composeRef.current += char;
+            term.write(char);
+          }
+          continue;
         }
+
+        // Prefix routing, only at the start of a line.
+        if (atLineStartRef.current) {
+          if (char === '?') {
+            flush();
+            composeRef.current = '';
+            term.write(`${ESC}[38;5;68m│ ${ESC}[38;5;110m`);
+            continue;
+          }
+          if (char === '$') {
+            // Swallow the marker; the rest of the line goes raw to the shell
+            // so zsh keeps its own history and completion.
+            atLineStartRef.current = false;
+            continue;
+          }
+        }
+
+        pending += char;
+        if (char === '\r' || char === '\n') atLineStartRef.current = true;
+        else if (char >= ' ' && char !== BACKSPACE) atLineStartRef.current = false;
       }
 
-      if (data.includes('\r') || data.includes('\n')) atLineStartRef.current = true;
-      else if (data >= ' ') atLineStartRef.current = false;
-
-      toPty(data);
+      flush();
     });
 
     const offData = window.helm.pty.onData(({ sessionId, data }) => {
