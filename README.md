@@ -165,12 +165,25 @@ Kill gate: unified scrollback has to beat two windows. If it doesn't, you've
 rebuilt the desktop app worse.
 
 **Phase 3 — routing.** `routeInput()` with PATH scanning. Log every decision
-with the rule that fired.
+with the rule that fired. *Done, running in shadow mode.*
 Kill gate: measure misroute rate over a week of real use. Above 5% and the
 inference is a liability — fall back to Phase 2 prefixes permanently.
 
+Inference is implemented and logged but does **not** decide anything yet.
+Every line you run is recorded alongside the verdict `routeInput()` would have
+reached, so the misroute rate is measured before it is trusted — which is the
+point of the kill gate. Switching it on before the data exists would be
+deciding the gate by assumption.
+
+Shell lines are reported by a `preexec` hook in `scripts/helm-osc7.zsh`:
+`preexec` sees the final command after history recall and completion, which
+nothing on Helm's side can reconstruct from keystrokes. Run
+`pnpm routing:report` to see the distribution and the current misroute rate.
+
 **Phase 4 — scope UI.** `resolveAffectedPaths()`, symlink resolution,
-out-of-scope flagging, session-scoped persistence.
+out-of-scope flagging, session-scoped persistence. *Done.* Includes a
+`PreToolUse` hook, without which the SDK's own safe-command classification
+lets calls through without Helm ever seeing them.
 Kill gate: this is the one feature the official app doesn't have. If it doesn't
 change how you approve things, the project's differentiator was imaginary.
 
