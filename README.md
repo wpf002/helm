@@ -196,7 +196,20 @@ paid off: the app becomes resident (window close hides rather than quits, global
 process names). Verify no user-visible surface reads "Electron".
 
 **Phase 6 — sessions.** Multiple concurrent sessions, transcript persistence,
-resume. Only worth it if Phases 1-5 survived.
+resume. *Done.*
+
+Each session owns its own xterm instance, so switching tabs shows a different
+surface rather than replaying one — scrollback, cursor and any running
+full-screen program survive a switch untouched.
+
+Transcripts record **events, not rendered text**: `{t:'pty'}` and `{t:'agent'}`
+entries replay through the same code path that drew them live, so a resumed
+session cannot drift from what the renderer would produce today. Capped at 8MB
+per session, oldest pruned past 20, and a write failure drops the sink rather
+than taking the terminal with it.
+
+`⌘T` new, `⌘W` close, `⌘⇧R` resume, plus `+` and `⟲` in the tab strip — the
+menu accelerators alone were undiscoverable.
 
 ## Conventions
 
