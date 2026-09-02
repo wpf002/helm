@@ -211,6 +211,20 @@ than taking the terminal with it.
 `⌘T` new, `⌘W` close, `⌘⇧R` resume, plus `+` and `⟲` in the tab strip — the
 menu accelerators alone were undiscoverable.
 
+## Clearing
+
+`⌘K` clears; `⌘⇧K` resets. Both call `term.reset()` rather than `term.clear()`,
+because `clear()` keeps the attribute state — the stuck colours and inverse
+video a half-written escape sequence leaves behind, which is most of what makes
+a mangled screen unreadable. The prompt then has to come back and only the
+shell knows what its prompt is, so Ctrl+L asks zsh to redraw it; a half-typed
+line survives.
+
+`⌘⇧K` sends Ctrl+C first. That is the difference that matters: a stray quote
+strands zsh at a continuation prompt, and clearing on its own looks like it
+does nothing because the shell is still waiting for input. Neither one stops a
+**background** job that is still writing — that needs `kill %1`.
+
 ## Preferences
 
 `~/.helm/config.json` holds what you change from inside the app — font size,

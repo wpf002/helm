@@ -116,9 +116,16 @@ function buildMenu(): void {
           { role: 'selectAll' },
           { type: 'separator' },
           {
-            label: 'Clear Scrollback',
+            label: 'Clear',
             accelerator: 'CmdOrCtrl+K',
-            click: () => mainWindow?.webContents.send('helm:clear'),
+            click: () => mainWindow?.webContents.send('helm:clear', false),
+          },
+          {
+            // The escape hatch for a terminal a mangled write has left in a
+            // state clearing alone does not fix.
+            label: 'Reset Terminal',
+            accelerator: 'CmdOrCtrl+Shift+K',
+            click: () => mainWindow?.webContents.send('helm:clear', true),
           },
         ],
       },

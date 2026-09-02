@@ -71,6 +71,16 @@ export class AgentWriter {
 
   constructor(private readonly term: Terminal) {}
 
+  /**
+   * Drops buffered state after the buffer itself has been wiped. Without this
+   * a half-written line would be flushed into the fresh screen, gutter and
+   * all, as if it belonged to whatever comes next.
+   */
+  reset(): void {
+    this.pending = '';
+    this.atLineStart = true;
+  }
+
   /** True while a turn is producing output, so Ctrl+C knows to interrupt. */
   get isStreaming(): boolean {
     return this.streaming;

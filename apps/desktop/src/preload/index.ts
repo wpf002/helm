@@ -138,8 +138,11 @@ const api = {
   onFontStep: (handler: (step: number) => void): (() => void) => subscribe('helm:font', handler),
   onPreferences: (handler: () => void): (() => void) => subscribe('helm:preferences', handler),
 
-  /** UI-only command from the application menu. Carries no capability. */
-  onClear: (handler: () => void): (() => void) => subscribe('helm:clear', handler),
+  /**
+   * UI-only command from the application menu. Carries no capability.
+   * `hard` asks for a full reset rather than a scrollback wipe.
+   */
+  onClear: (handler: (hard: boolean) => void): (() => void) => subscribe('helm:clear', handler),
 };
 
 export type HelmApi = typeof api;

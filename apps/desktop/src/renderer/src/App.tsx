@@ -437,7 +437,30 @@ export default function App(): JSX.Element {
       }
     })();
 
-    const offClear = window.helm.onClear(() => active()?.term.clear());
+    /**
+     * Clearing has to reach both halves of the buffer. term.reset() wipes the
+     * screen, the scrollback and the attribute state — clear() keeps the stuck
+     * colours and inverse video that a half-written escape sequence leaves
+     * behind, which is most of what makes a mangled screen unreadable.
+     *
+     * The prompt then has to come back, and only the shell knows what its
+     * prompt is, so Ctrl+L asks zsh to redraw it (a half-typed line survives).
+     * `hard` sends Ctrl+C first, which abandons a continuation prompt — the
+     * state a stray quote or `>` leaves behind, where clearing on its own
+     * appears to do nothing because the shell is still waiting for input.
+     */
+    const clearTerminal = (hard: boolean): void => {
+      const s = active();
+      if (!s) return;
+      s.term.reset();
+      s.writer.reset();
+      s.atLineStart = true;
+      if (hard) s.compose = null;
+      if (!s.id || s.exited !== null) return;
+      if (hard) window.helm.pty.write(s.id, CTRL_C);
+      window.helm.pty.write(s.id, '\f');
+    };
+    const offClear = window.helm.onClear(clearTerminal);
     const offNewTab = window.helm.session.onNew(() => void addSession());
     const offCloseTab = window.helm.session.onClose(() => void closeSession(activeRef.current));
     const doResume = (): void => {
