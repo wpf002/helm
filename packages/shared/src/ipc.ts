@@ -109,6 +109,9 @@ export interface HelmConfig {
   notifyWhenHidden: boolean;
   checkForUpdates: boolean;
   scrollback: number;
+  /** Which model answers. Sonnet handles almost everything; Opus is for the
+   *  problems where it visibly does not, at roughly ten times the price. */
+  model: 'claude-sonnet-5' | 'claude-opus-5' | 'claude-haiku-4-5-20251001';
 }
 
 /** Whether the zsh integration is installed, and where it would go. */

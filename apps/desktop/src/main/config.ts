@@ -7,23 +7,14 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import type { HelmConfig } from '@helm/shared';
+
+// One definition, shared with the renderer. Two copies of this interface drift,
+// and the drift is invisible until a setting silently stops crossing the IPC.
+export type { HelmConfig };
 
 export const CONFIG_PATH = join(homedir(), '.helm', 'config.json');
 
-export interface HelmConfig {
-  /** Overrides HELM_PERMISSION_MODE once set from Preferences. */
-  permissionMode: 'off' | 'prompt' | 'auto';
-  fontSize: number;
-  /** Copy the selection to the clipboard as soon as it is made. */
-  copyOnSelect: boolean;
-  /** Middle-click pastes, as most terminals do. */
-  middleClickPaste: boolean;
-  /** Notify when an agent turn finishes while the window is hidden. */
-  notifyWhenHidden: boolean;
-  /** Check GitHub for a newer commit on startup. */
-  checkForUpdates: boolean;
-  scrollback: number;
-}
 
 const DEFAULTS: HelmConfig = {
   permissionMode: 'prompt',
@@ -33,7 +24,14 @@ const DEFAULTS: HelmConfig = {
   notifyWhenHidden: true,
   checkForUpdates: true,
   scrollback: 50_000,
+  model: 'claude-sonnet-5',
 };
+
+const MODELS = new Set<HelmConfig['model']>([
+  'claude-sonnet-5',
+  'claude-opus-5',
+  'claude-haiku-4-5-20251001',
+]);
 
 function clamp(value: unknown, min: number, max: number, fallback: number): number {
   const n = typeof value === 'number' && Number.isFinite(value) ? value : fallback;
@@ -57,6 +55,9 @@ export function loadConfig(): HelmConfig {
       notifyWhenHidden: bool('notifyWhenHidden'),
       checkForUpdates: bool('checkForUpdates'),
       scrollback: clamp(record['scrollback'], 1_000, 500_000, DEFAULTS.scrollback),
+      model: MODELS.has(record['model'] as HelmConfig['model'])
+        ? (record['model'] as HelmConfig['model'])
+        : DEFAULTS.model,
     };
   } catch {
     // A corrupt config must not stop the terminal from opening.

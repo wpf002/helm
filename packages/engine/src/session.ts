@@ -9,6 +9,7 @@ import type {
 } from '@anthropic-ai/claude-agent-sdk';
 import type { PermissionDecision, PermissionRequest, StreamEvent, TokenUsage } from '@helm/shared';
 import { evaluateScope } from './scope.js';
+import { buildHelmServer, readMemory, type ToolHost } from './tools.js';
 
 export interface EngineConfig {
   /** cwd the agent is launched in. Everything else must be an explicit root. */
@@ -19,6 +20,10 @@ export interface EngineConfig {
   pathToClaudeCodeExecutable?: string;
   /** Defaults to Sonnet. Opus with a 1M context costs ~$0.16 per trivial turn. */
   model?: string;
+  /** The shell's recent output, and where notes live. See tools.ts. */
+  host?: ToolHost;
+  /** Servers from ~/.helm/mcp.json, merged with Helm's own in-process one. */
+  mcpServers?: Record<string, unknown>;
 }
 
 export interface EngineCallbacks {
@@ -79,6 +84,16 @@ const SYSTEM_APPEND = [
   'what is publicly available, or say plainly that nothing relevant came back.',
   'Do not answer from memory alone that you cannot look someone up, and do not',
   'assemble a profile by cross-referencing sources.',
+  '',
+  'You can see this terminal. `terminal_output` returns what the shell has',
+  'just printed, so a question about "that error", "the last command" or',
+  'anything already on screen is answered by reading it, not by asking the',
+  'user to paste it. Check there first whenever a question refers to something',
+  'that has already happened.',
+  '',
+  'Use `remember` for a fact that will still be true tomorrow — where a',
+  'project lives, how the user prefers something done — and `forget` when one',
+  'turns out to be wrong. Do not record the substance of a single task.',
 ].join(' ');
 
 /**
@@ -241,6 +256,19 @@ export async function createSession(
     } as HookJSONOutput;
   };
 
+  const helmServer = await buildHelmServer(config.host ?? {});
+  const mcpServers = {
+    ...(config.mcpServers ?? {}),
+    ...(helmServer ? { helm: helmServer } : {}),
+  };
+
+  /**
+   * Notes from previous sessions, read once at construction. They ride in the
+   * cached prefix rather than being re-sent per turn, and the file is small by
+   * design — a memory that grows without bound is a bill that grows with it.
+   */
+  const memory = readMemory(config.host?.memoryPath);
+
   const options: Options = {
     cwd: config.homeRoot,
     additionalDirectories: config.extraRoots,
@@ -251,13 +279,18 @@ export async function createSession(
     systemPrompt: {
       type: 'preset',
       preset: 'claude_code',
-      append: SYSTEM_APPEND,
+      append: memory
+        ? `${SYSTEM_APPEND}\n\nSaved notes about this machine and user:\n${memory}`
+        : SYSTEM_APPEND,
       excludeDynamicSections: true,
     },
     // Do not load user/project settings or CLAUDE.md files: Helm's scope is the
     // whole home directory, so those would be picked up unpredictably.
     settingSources: [],
     includePartialMessages: true,
+    ...(Object.keys(mcpServers).length > 0
+      ? { mcpServers: mcpServers as NonNullable<Options['mcpServers']> }
+      : {}),
     permissionMode: config.permissionMode === 'off' ? 'bypassPermissions' : 'default',
     ...(config.permissionMode === 'off'
       ? {}

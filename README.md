@@ -211,6 +211,32 @@ than taking the terminal with it.
 `⌘T` new, `⌘W` close, `⌘⇧R` resume, plus `+` and `⟲` in the tab strip — the
 menu accelerators alone were undiscoverable.
 
+## What the agent can see and remember
+
+Two tools Helm gives it that a chat window cannot, both in-process through the
+SDK's own MCP transport — no subprocess, no port:
+
+- **`terminal_output`** — the shell's recent output as plain text. Helm's
+  premise is one buffer, but the agent could only see the half it wrote itself,
+  so "why did that fail?" about the error three lines up was unanswerable. It
+  is a tool, not an injection: a session that never asks pays nothing, and a
+  turn that does pays once. 300 lines per session, escape sequences stripped
+  across chunk boundaries — a pty splits on buffer boundaries, not sequence
+  boundaries, and cleaning each chunk alone quoted half an OSC payload back to
+  the model as if the terminal had printed it.
+- **`remember` / `forget`** — `~/.helm/memory.md`, read once when the agent is
+  built so notes ride in the cached prefix instead of being re-sent every turn.
+
+`~/.helm/mcp.json` adds connectors, in the same shape Claude Code uses. The
+name `helm` is reserved for the in-process server.
+
+The model is a setting: Sonnet by default, Opus for problems where Sonnet
+visibly struggles, Haiku when speed matters more. Turns are priced against the
+model that actually answered.
+
+The shell keeps working while a turn runs — the pty and the agent are separate
+processes and always were; this is just the first time it was tested.
+
 ## Approvals
 
 Three modes, in `~/.helm/config.json` or Preferences: ask about everything out

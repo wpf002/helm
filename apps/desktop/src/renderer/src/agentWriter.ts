@@ -95,7 +95,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * The engine used to fold these together into a single display string, which
  * meant a shell script arrived as one enormous "tool name".
  */
-function summarise(toolName: string, input: unknown): { head: string; detail: string } {
+function summarise(rawName: string, input: unknown): { head: string; detail: string } {
+  // `mcp__helm__terminal_output` is a wire name, not something to read. The
+  // server prefix says nothing the tool name does not.
+  const mcp = /^mcp__[^_]+(?:_[^_]+)*?__(.+)$/.exec(rawName);
+  const toolName = mcp?.[1] ?? rawName;
+
   if (!isRecord(input)) return { head: toolName, detail: '' };
   const str = (key: string): string =>
     typeof input[key] === 'string' ? (input[key] as string) : '';
@@ -115,8 +120,17 @@ function summarise(toolName: string, input: unknown): { head: string; detail: st
     case 'WebFetch':
       return { head: 'Fetch', detail: str('url') };
     default: {
-      const keys = Object.keys(input).slice(0, 3).join(', ');
-      return { head: toolName, detail: keys };
+      // Show the arguments, not the argument names — `lines` told you nothing
+      // that `lines=80` does not. Objects and arrays have no one-line form
+      // worth printing, so those fall back to the key alone.
+      const parts = Object.entries(input)
+        .slice(0, 3)
+        .map(([key, value]) =>
+          typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+            ? `${key}=${String(value)}`
+            : key,
+        );
+      return { head: toolName, detail: oneLine(parts.join(' ')) };
     }
   }
 }

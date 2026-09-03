@@ -144,6 +144,29 @@ export function Preferences({
 
         <section className="pref__section">
           <h4 className="pref__title">Agent</h4>
+          <label className="pref__row">
+            <select
+              className="pref__select"
+              value={config.model}
+              onChange={(e) => onChange({ model: e.target.value as HelmConfig['model'] })}
+            >
+              <option value="claude-sonnet-5">Sonnet — the default</option>
+              <option value="claude-opus-5">Opus — hard problems</option>
+              <option value="claude-haiku-4-5-20251001">Haiku — fast and cheap</option>
+            </select>
+            <span>
+              <span className="pref__label">Model</span>
+              <span className="pref__hint">
+                {config.model === 'claude-opus-5' &&
+                  'Roughly ten times the cost of Sonnet per turn. Worth it when Sonnet is visibly struggling, not before.'}
+                {config.model === 'claude-sonnet-5' &&
+                  'Handles almost everything a terminal is asked. ~$0.01 a turn.'}
+                {config.model === 'claude-haiku-4-5-20251001' &&
+                  'Fastest and cheapest. Weaker at multi-step work.'}
+              </span>
+            </span>
+          </label>
+          <p className="pref__hint">Changing this restarts the agent; the terminal is untouched.</p>
           <Toggle
             label="Notify when hidden"
             hint="A turn that finishes behind a hidden window may as well not have finished."

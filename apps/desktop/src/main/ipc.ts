@@ -3,12 +3,20 @@
 
 import { app, ipcMain, Notification, type BrowserWindow } from 'electron';
 import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, join, sep } from 'node:path';
-import { spawnPty, type PtySession } from '@helm/shell';
+import {
+  dropScrollback,
+  readScrollback,
+  recordScrollback,
+  spawnPty,
+  type PtySession,
+} from '@helm/shell';
 import { createSession, routeInputWithFactors, scanPathBinaries, type AgentSession } from '@helm/engine';
 import { IPC, type InputRoute, type SessionCreateOptions, type SessionInfo } from '@helm/shared';
 import type { HelmEnv } from './env.js';
 import { clearPermissionState, requestPermission, resolvePermission } from './permissions.js';
+import { loadMcpServers } from './mcp.js';
 import { logRouting, recordFor } from './routing-log.js';
 import { loadConfig, saveConfig, type HelmConfig } from './config.js';
 import { estimateCost, readUsage, recordUsage } from './usage.js';
@@ -199,11 +207,13 @@ export function registerIpc(getWindow: () => BrowserWindow | null, env: HelmEnv)
       {
         onData: (sessionId, data) => {
           recordPty(sessionId, data);
+          recordScrollback(sessionId, data);
           send(IPC.PtyData, { sessionId, data });
         },
         onExit: (sessionId, code) => {
           sessions.delete(sessionId);
           closeTranscript(sessionId);
+          dropScrollback(sessionId);
           send(IPC.PtyExit, { sessionId, code });
         },
       },
@@ -236,6 +246,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, env: HelmEnv)
     session.kill();
     sessions.delete(raw);
     closeTranscript(raw);
+    dropScrollback(raw);
     // A session-scoped grant dies with the session that granted it.
     clearPermissionState();
     return true;
@@ -290,7 +301,15 @@ export function registerIpc(getWindow: () => BrowserWindow | null, env: HelmEnv)
         homeRoot: env.homeRoot,
         extraRoots: env.extraRoots,
         permissionMode: effectiveMode(),
-        ...(env.model ? { model: env.model } : {}),
+        // .env still wins, for pinning a model outside the UI.
+        model: env.model ?? loadConfig().model,
+        host: {
+          // The agent asks for the terminal's output; it is never pushed into
+          // a prompt. Whichever session is in front is the one it can see.
+          readScrollback: (lines: number) => readScrollback(activeSessionId, lines),
+          memoryPath: join(homedir(), '.helm', 'memory.md'),
+        },
+        mcpServers: loadMcpServers(),
         ...(claudeExecutable ? { pathToClaudeCodeExecutable: claudeExecutable } : {}),
       },
       {
@@ -300,7 +319,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null, env: HelmEnv)
           if (activeSessionId) recordAgent(activeSessionId, event);
           if (event.kind === 'turn_end') {
             if (event.usage) {
-              const model = env.model ?? 'claude-sonnet-5';
+              // Price against the model that actually answered. Reading it
+              // from .env alone billed a Haiku turn at Sonnet rates.
+              const model = env.model ?? loadConfig().model;
               send(IPC.UsageChanged, recordUsage(event.usage, model));
               // Price it here, where the table lives, so the renderer never
               // has to keep a second copy in sync.
@@ -382,12 +403,13 @@ export function registerIpc(getWindow: () => BrowserWindow | null, env: HelmEnv)
 
   ipcMain.handle(IPC.ConfigSet, async (_event, raw: unknown): Promise<HelmConfig> => {
     if (!isRecord(raw)) return loadConfig();
-    const before = effectiveMode();
+    const before = `${effectiveMode()}/${loadConfig().model}`;
     const saved = saveConfig(raw as Partial<HelmConfig>);
 
-    // The engine reads its mode once, when the session is built. Without this
-    // the setting appeared to change and nothing did until the next launch.
-    if (effectiveMode() !== before && agent) {
+    // The engine reads its mode and model once, when the session is built.
+    // Without this the setting appeared to change and nothing did until the
+    // next launch.
+    if (`${effectiveMode()}/${loadConfig().model}` !== before && agent) {
       const stale = agent;
       agent = null;
       agentStarting = null;
