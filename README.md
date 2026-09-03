@@ -211,6 +211,19 @@ than taking the terminal with it.
 `⌘T` new, `⌘W` close, `⌘⇧R` resume, plus `+` and `⟲` in the tab strip — the
 menu accelerators alone were undiscoverable.
 
+## Approvals
+
+Three modes, in `~/.helm/config.json` or Preferences: ask about everything out
+of scope, ask only before writes outside your roots, or never ask. The mode is
+read in one place — Preferences wins over `.env` — because the title bar has to
+show the same value the engine enforces; a bar reading "guarded" over an
+unguarded agent is worse than no bar. Changing it disposes the running agent so
+the next turn is built under the new mode, rather than appearing to change
+nothing until the next launch.
+
+With approvals off the title bar turns red and says so. That is the only thing
+left standing between the agent and the disk, so it stays.
+
 ## Reading the output
 
 The agent's stream shares the buffer with the shell, so it is wrapped to the

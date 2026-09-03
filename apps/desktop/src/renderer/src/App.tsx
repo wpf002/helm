@@ -429,6 +429,7 @@ export default function App(): JSX.Element {
       if (disposed) return;
       configRef.current = loaded;
       setConfig(loaded);
+      setPermissionMode(loaded.permissionMode);
       setUsage(totals);
       setHook(hookStatus);
       if (loaded.checkForUpdates) {
@@ -621,6 +622,7 @@ export default function App(): JSX.Element {
             void window.helm.config.set(patch).then((updated) => {
               configRef.current = updated;
               setConfig(updated);
+              setPermissionMode(updated.permissionMode);
               if (patch.fontSize !== undefined) applyFontRef.current(updated.fontSize);
             });
           }}

@@ -216,9 +216,18 @@ export function registerIpc(getWindow: () => BrowserWindow | null, env: HelmEnv)
       id: session.id,
       shell: env.shell,
       cwd: session.cwd(),
-      permissionMode: env.permissionMode,
+      permissionMode: effectiveMode(),
     };
   });
+
+  /**
+   * The mode the agent is actually running under. Preferences wins over .env
+   * once it has been set there, and the title bar has to read the same value
+   * the engine does — a bar that says "guarded" over an unguarded agent is
+   * worse than no bar at all.
+   */
+  const effectiveMode = (): 'off' | 'prompt' | 'auto' =>
+    loadConfig().permissionMode ?? env.permissionMode;
 
   ipcMain.handle(IPC.SessionClose, (_event, raw: unknown): boolean => {
     if (typeof raw !== 'string') return false;
@@ -262,7 +271,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, env: HelmEnv)
       id: s.id,
       shell: env.shell,
       cwd: s.cwd(),
-      permissionMode: env.permissionMode,
+      permissionMode: effectiveMode(),
     })),
   );
 
@@ -280,8 +289,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, env: HelmEnv)
       {
         homeRoot: env.homeRoot,
         extraRoots: env.extraRoots,
-        // Preferences wins over .env once the user has set it there.
-        permissionMode: loadConfig().permissionMode ?? env.permissionMode,
+        permissionMode: effectiveMode(),
         ...(env.model ? { model: env.model } : {}),
         ...(claudeExecutable ? { pathToClaudeCodeExecutable: claudeExecutable } : {}),
       },
@@ -372,9 +380,20 @@ export function registerIpc(getWindow: () => BrowserWindow | null, env: HelmEnv)
 
   ipcMain.handle(IPC.ConfigGet, (): HelmConfig => loadConfig());
 
-  ipcMain.handle(IPC.ConfigSet, (_event, raw: unknown): HelmConfig => {
+  ipcMain.handle(IPC.ConfigSet, async (_event, raw: unknown): Promise<HelmConfig> => {
     if (!isRecord(raw)) return loadConfig();
-    return saveConfig(raw as Partial<HelmConfig>);
+    const before = effectiveMode();
+    const saved = saveConfig(raw as Partial<HelmConfig>);
+
+    // The engine reads its mode once, when the session is built. Without this
+    // the setting appeared to change and nothing did until the next launch.
+    if (effectiveMode() !== before && agent) {
+      const stale = agent;
+      agent = null;
+      agentStarting = null;
+      await stale.dispose();
+    }
+    return saved;
   });
 
   ipcMain.handle(IPC.UsageGet, () => readUsage());
