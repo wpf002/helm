@@ -139,28 +139,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
-/** One line per tool call. The raw JSON belongs in the permission prompt, not the buffer. */
-function summariseTool(toolName: string, input: unknown): string {
-  if (!isRecord(input)) return toolName;
-  const pick = (key: string): string | undefined =>
-    typeof input[key] === 'string' ? (input[key] as string) : undefined;
-
-  switch (toolName) {
-    case 'Bash':
-      return `Bash ${pick('command') ?? ''}`.trim();
-    case 'Read':
-    case 'Write':
-    case 'Edit':
-      return `${toolName} ${pick('file_path') ?? ''}`.trim();
-    case 'Glob':
-    case 'Grep':
-      return `${toolName} ${pick('pattern') ?? ''}`.trim();
-    default: {
-      const keys = Object.keys(input).slice(0, 3).join(', ');
-      return keys ? `${toolName} (${keys})` : toolName;
-    }
-  }
-}
 
 function readUsage(raw: unknown): TokenUsage | undefined {
   if (!isRecord(raw)) return undefined;
@@ -322,7 +300,9 @@ export async function createSession(
                 kind: 'tool_start',
                 sessionId: id,
                 toolId: String(block['id'] ?? ''),
-                toolName: summariseTool(String(block['name'] ?? ''), block['input']),
+                // The bare name. Turning a tool call into something readable is the
+                // renderer's job — it is the only side that knows the width.
+                toolName: String(block['name'] ?? ''),
                 input: block['input'],
               });
             }

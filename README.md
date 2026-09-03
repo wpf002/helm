@@ -211,6 +211,21 @@ than taking the terminal with it.
 `⌘T` new, `⌘W` close, `⌘⇧R` resume, plus `+` and `⟲` in the tab strip — the
 menu accelerators alone were undiscoverable.
 
+## Reading the output
+
+The agent's stream shares the buffer with the shell, so it is wrapped to the
+terminal width **inside** the gutter rather than left to the terminal, which
+wraps into column zero and breaks the one thing that says whose output it is.
+
+A tool call is a name and one argument: short ones sit on the line, long ones
+are collapsed to a single line, indented under the name and cut after four.
+Results report a line count and the first line. The engine sends the bare tool
+name and its input — turning that into something readable is the renderer's
+job, since it is the only side that knows the width.
+
+A running turn is a pulsing dot, not a sentence. The output already says a turn
+is running.
+
 ## Clearing
 
 `⌘K` clears; `⌘⇧K` resets. Both call `term.reset()` rather than `term.clear()`,

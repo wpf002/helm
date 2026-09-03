@@ -78,8 +78,30 @@ body {
 
 .titlebar__busy {
   margin-left: auto;
-  color: #e0c07a;
-  font-size: 11px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #e0c07a;
+  animation: helm-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes helm-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Motion is the whole point of the dot, but it should not be the price of
+   using the app for anyone who has asked the system to stop moving things. */
+@media (prefers-reduced-motion: reduce) {
+  .titlebar__busy {
+    animation: none;
+    opacity: 0.9;
+  }
 }
 
 /* HELM_PERMISSION_MODE=off runs every tool call unreviewed. The title bar has

@@ -104,6 +104,7 @@ export default function App(): JSX.Element {
       if (disposed) return;
       s.id = info.id;
       s.home = info.cwd;
+      s.writer.home = info.cwd;
       s.cwd = info.cwd;
       s.title = leaf(info.cwd);
       s.exited = null;
@@ -579,7 +580,9 @@ export default function App(): JSX.Element {
         {current?.cwd && (
           <span className="titlebar__cwd">{displayCwd(current.cwd, current.home)}</span>
         )}
-        {busy && <span className="titlebar__busy">agent working — ^C to stop</span>}
+        {/* A dot, not a sentence. The streaming output already says a turn is
+            running, and ^C is the same key it has always been. */}
+        {busy && <span className="titlebar__busy" title="Agent working — ^C to stop" />}
         {hook && !hook.installed && (
           <button
             className="titlebar__nudge"
