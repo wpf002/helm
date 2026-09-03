@@ -124,6 +124,30 @@ describe('scope containment', () => {
       // Redirecting to /dev/null discards output rather than writing a file.
       expect(classifyCommand('pmset -g therm 2>/dev/null')).toBe('read-only');
     });
+
+    it.each([
+      'find / -iname "*claude*" 2>/dev/null | head -100',
+      'mdfind "kMDItemFSName == \'*claude*\'c" 2>/dev/null',
+      'locate claude',
+    ])('treats searching the disk as reading it: %j', (command) => {
+      expect(classifyCommand(command)).toBe('read-only');
+    });
+
+    it.each(['find . -name "*.log" -delete', 'find . -name x -exec rm {} +'])(
+      'still stops for %j',
+      (command) => {
+        expect(classifyCommand(command)).toBe('mutating');
+      },
+    );
+
+    it('does not treat /dev/null as a file outside your roots', async () => {
+      const result = await verdict('Bash', {
+        command: 'find / -iname "*claude*" 2>/dev/null; echo x 2>/dev/null',
+      });
+      expect(result.outOfScope).toBe(false);
+      expect(result.factors.some((f) => f.rule === 'outside-roots')).toBe(false);
+      expect(result.factors.filter((f) => f.rule === 'null-device')).toHaveLength(1);
+    });
   });
 
   it('denies everything when no roots are configured', async () => {

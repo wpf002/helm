@@ -41,7 +41,24 @@ const READ_ONLY_COMMANDS = new Set([
   'dirname', 'realpath', 'seq', 'true', 'false', 'awk', 'grep', 'egrep',
   'fgrep', 'rg', 'ag', 'diff', 'cmp', 'md5', 'shasum', 'base64', 'xxd', 'od',
   'ls', 'tree', 'pwd', 'readlink',
+  // searching the disk. `find` is only safe here because MUTATING_PATTERN
+  // catches -delete and -exec, which are the two ways it stops being a search.
+  'find', 'mdfind', 'mdls', 'locate', 'strings', 'otool', 'nm',
 ]);
+
+/**
+ * Paths that are not anybody's files. Writing to /dev/null is how a shell
+ * discards output, and counting it as "outside your roots" made a plain search
+ * ask for permission three times over — for the bit bucket.
+ */
+const NULL_DEVICES = new Set([
+  '/dev/null', '/dev/zero', '/dev/random', '/dev/urandom',
+  '/dev/stdin', '/dev/stdout', '/dev/stderr', '/dev/tty', '/dev/console',
+]);
+
+function isNullDevice(path: string): boolean {
+  return NULL_DEVICES.has(path) || /^\/dev\/fd\/\d+$/.test(path);
+}
 
 /**
  * Tools where the subcommand decides. `git status` and `npm view` only report;
@@ -276,7 +293,10 @@ export async function evaluateScope(
     const expanded = expandHome(value);
     const absolute = isAbsolute(expanded) ? expanded : resolve(cwd, expanded);
     const real = await realpathOrNearest(absolute);
-    if (!paths.includes(real)) paths.push(real);
+    // The same path twice in one command is one fact, not two. `2>/dev/null`
+    // repeated across a pipeline used to state the same reason three times.
+    if (paths.includes(real)) continue;
+    paths.push(real);
 
     if (real !== absolute) {
       factors.push({
@@ -284,6 +304,15 @@ export async function evaluateScope(
         detail: `${absolute} resolves to ${real}`,
         effect: 'info',
       });
+    }
+
+    if (isNullDevice(real)) {
+      factors.push({
+        rule: 'null-device',
+        detail: `${real} discards or supplies a stream; it is not a file in anyone's roots.`,
+        effect: 'in-scope',
+      });
+      continue;
     }
 
     const inside = await isWithinRoots(real, roots);
