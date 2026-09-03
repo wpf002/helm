@@ -221,8 +221,9 @@ unguarded agent is worse than no bar. Changing it disposes the running agent so
 the next turn is built under the new mode, rather than appearing to change
 nothing until the next launch.
 
-With approvals off the title bar turns red and says so. That is the only thing
-left standing between the agent and the disk, so it stays.
+With approvals off, a red dot sits beside the name. A maroon title bar said it
+once and then shouted it all day, which is how a warning stops being read. The
+dot stays: it is the only thing left between the agent and the disk.
 
 ## Reading the output
 

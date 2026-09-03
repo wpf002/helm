@@ -536,7 +536,10 @@ export default function App(): JSX.Element {
       <header className={`titlebar${permissionMode === 'off' ? ' titlebar--unguarded' : ''}`}>
         <span className="titlebar__name">Helm</span>
         {permissionMode === 'off' && (
-          <span className="titlebar__unguarded">approvals off</span>
+          <span
+            className="titlebar__unguarded"
+            title="Approvals off — every tool call runs without asking"
+          />
         )}
         <nav className="tabs">
           {sessions.map((s, i) => (

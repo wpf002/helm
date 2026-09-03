@@ -104,18 +104,19 @@ body {
   }
 }
 
-/* HELM_PERMISSION_MODE=off runs every tool call unreviewed. The title bar has
-   to make that impossible to forget. */
+/* Approvals off runs every tool call unreviewed, and that has to be visible.
+   A maroon title bar said it once and then shouted it for the rest of the day,
+   so it is a dot beside the name: present, permanent, quiet. */
 .titlebar--unguarded {
-  background: #4a1d24;
-  border-bottom-color: #8c3a45;
+  border-bottom-color: #6b2f38;
 }
 
 .titlebar__unguarded {
-  color: #ffb3ba;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #d8636f;
+  flex: none;
 }
 
 /* ---- permission overlay ---- */
