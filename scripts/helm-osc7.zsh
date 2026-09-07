@@ -75,8 +75,28 @@ if [[ "$TERM_PROGRAM" == "Helm" ]] && [[ -n "$ZSH_VERSION" ]] && [[ -z "$_HELM_S
     printf '\e]7374;%s\a' "$encoded"
   }
 
+  # Hand the prompt back after an agent turn, without submitting anything.
+  #
+  # Helm used to write a bare newline to the pty for this, which zsh reads as
+  # accept-line: if a turn finished while you were half-way through typing a
+  # command, your partial line ran. Observed live — `echo SHELL-ALIVE-DURIN`
+  # executed and the rest of the word became the next prompt.
+  #
+  # An empty line still gets the plain accept-line it always did. A line with
+  # something in it is only redrawn.
+  _helm_prompt_back() {
+    if [[ -z "$BUFFER" ]]; then
+      zle accept-line
+    else
+      zle reset-prompt
+    fi
+  }
+
   zle -N _helm_submit
+  zle -N _helm_prompt_back
   bindkey '^M' _helm_submit
+  # ^X^R is unbound in a default zsh, and this only ever binds inside Helm.
+  bindkey '^X^R' _helm_prompt_back
 
   # Tell Helm the widget is live, so it does not also try to intercept keys.
   printf '\e]7375;1\a'

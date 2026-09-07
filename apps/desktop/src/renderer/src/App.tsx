@@ -12,6 +12,8 @@ import { createTerminal, newSession, replay, type Session } from './session';
 const RESIZE_DEBOUNCE_MS = 80;
 const ESC = String.fromCharCode(0x1b);
 const CTRL_C = String.fromCharCode(0x03);
+/** ^X^R — the shell hook's "give me my prompt back without running anything". */
+const PROMPT_BACK = String.fromCharCode(0x18, 0x12);
 const BACKSPACE = String.fromCharCode(0x7f);
 
 /**
@@ -348,8 +350,16 @@ export default function App(): JSX.Element {
         setBusy(false);
         // Hand the terminal back. Without this the readout just ends and you
         // are left staring at output with no prompt, which does not read as a
-        // terminal any more. An empty line makes zsh redraw its prompt.
-        if (owner?.id && owner.exited === null) window.helm.pty.write(owner.id, '\n');
+        // terminal any more.
+        //
+        // Not a newline: zsh reads that as accept-line, so a turn finishing
+        // while you were half-way through typing ran your partial line. The
+        // shell hook binds ^X^R to a widget that submits an empty line and
+        // only redraws a non-empty one. Without the hook there is nothing
+        // better than the newline.
+        if (owner?.id && owner.exited === null) {
+          window.helm.pty.write(owner.id, owner.widget ? PROMPT_BACK : '\n');
+        }
       }
     });
 

@@ -266,6 +266,24 @@ job, since it is the only side that knows the width.
 A running turn is a pulsing dot, not a sentence. The output already says a turn
 is running.
 
+## Sharing one buffer with the shell
+
+Both streams write to the same xterm buffer, so the agent writer cannot track
+its own line position — it only ever knew where *its* last write ended. When
+the shell had left the cursor mid-row, a gutter line was appended to that row,
+printing a submitted prompt twice on one line. Intermittent: reproduced at
+5/8 with 20ms between keystrokes and 0/8 at both 0ms and 80ms, because it
+turned on whether zsh's line-erase arrived before or after the submit handler.
+Every gutter row now asks the terminal where the cursor is. 0/24 after.
+
+Handing the prompt back at the end of a turn used to be a bare newline written
+to the pty. zsh reads that as accept-line, so a turn finishing while you were
+half-way through a command **ran your partial line** — caught in a regression
+run, where `echo SHELL-ALIVE-DURIN` executed and the rest became the next
+prompt. The shell hook now binds `^X^R` to a widget that accept-lines an empty
+buffer and only redraws a non-empty one. Verified across five rounds: the
+partial line survived every time and nothing ran.
+
 ## Clearing
 
 `⌘K` clears; `⌘⇧K` resets. Both call `term.reset()` rather than `term.clear()`,

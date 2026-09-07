@@ -188,9 +188,18 @@ export class AgentWriter {
     this.term.write(text);
   }
 
-  /** One physical line, gutter-marked. Never wrapped further. */
+  /**
+   * One physical line, gutter-marked. Never wrapped further.
+   *
+   * The shell shares this buffer and may have left the cursor mid-row — a
+   * half-typed command sitting there while a turn finishes underneath it. A
+   * gutter row appended to that row reads as one sentence made of two, so the
+   * row is started properly first. The terminal is asked where the cursor is,
+   * because nothing else here can know.
+   */
   private row(body: string): void {
-    this.raw(GUTTER + body + RESET + '\r\n');
+    const lead = this.cursorColumn() > 0 ? '\r\n' : '';
+    this.raw(lead + GUTTER + body + RESET + '\r\n');
     this.atLineStart = true;
     this.wroteSinceGap = true;
   }
@@ -198,7 +207,8 @@ export class AgentWriter {
   /** An empty gutter line. Blocks need air; two of them in a row do not. */
   private gap(): void {
     if (!this.wroteSinceGap) return;
-    this.raw(sgr('38;5;68') + GUTTER_CHAR.trimEnd() + RESET + '\r\n');
+    const lead = this.cursorColumn() > 0 ? '\r\n' : '';
+    this.raw(lead + sgr('38;5;68') + GUTTER_CHAR.trimEnd() + RESET + '\r\n');
     this.wroteSinceGap = false;
     this.atLineStart = true;
   }
@@ -235,12 +245,31 @@ export class AgentWriter {
     }
   }
 
-  /** Ends the current gutter line so shell output never inherits it. */
+  /**
+   * Ends the current line so shell output never inherits the gutter.
+   *
+   * The cursor column comes from the terminal, not from this class's own
+   * bookkeeping. Both the shell and the agent write into this buffer, so
+   * `atLineStart` only ever knew where *its* last write ended — and when the
+   * shell had left the cursor mid-row, the gutter line was appended to that
+   * row instead of starting a new one, printing the submitted prompt twice on
+   * one line. Intermittent, because it depended on whether zsh's line-erase
+   * arrived before or after this ran.
+   */
   private closeLine(): void {
     this.flushPending(AGENT_TEXT);
-    if (!this.atLineStart) {
+    if (!this.atLineStart || this.cursorColumn() > 0) {
       this.raw(RESET + '\r\n');
       this.atLineStart = true;
+    }
+  }
+
+  /** Where the terminal's cursor actually is, or 0 if it cannot be read. */
+  private cursorColumn(): number {
+    try {
+      return this.term.buffer.active.cursorX;
+    } catch {
+      return 0;
     }
   }
 
