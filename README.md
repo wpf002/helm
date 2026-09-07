@@ -274,7 +274,20 @@ the shell had left the cursor mid-row, a gutter line was appended to that row,
 printing a submitted prompt twice on one line. Intermittent: reproduced at
 5/8 with 20ms between keystrokes and 0/8 at both 0ms and 80ms, because it
 turned on whether zsh's line-erase arrived before or after the submit handler.
-Every gutter row now asks the terminal where the cursor is. 0/24 after.
+Every gutter row now asks the terminal where the cursor is.
+
+The race itself came from the shell. `zle redisplay` only marks the display
+dirty — zsh flushes it after the widget returns — so the OSC carrying the
+submission left first and the erase of the typed line arrived in a *later* pty
+chunk. Measured directly in a bare zsh under node-pty: with `redisplay` the OSC
+is alone in its chunk and the erase follows; with `zle -R` the erase and the OSC
+leave in one write, erase first, which no scheduling in the renderer can
+reorder. The hook uses `zle -R`. 0/24 after, at every keystroke cadence.
+
+Beware the assertion here: the first harness asked "does the phrase appear twice
+on one row", which a fix that merely moved the second copy to its own row would
+have passed. Count copies per round across all rows, and separate the shell's
+(no gutter) from Helm's.
 
 Handing the prompt back at the end of a turn used to be a bare newline written
 to the pty. zsh reads that as accept-line, so a turn finishing while you were

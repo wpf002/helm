@@ -71,7 +71,14 @@ if [[ "$TERM_PROGRAM" == "Helm" ]] && [[ -n "$ZSH_VERSION" ]] && [[ -z "$_HELM_S
     local encoded
     encoded=$(printf '%s' "$BUFFER" | base64 | tr -d '\n')
     BUFFER=""
-    zle redisplay
+    # `zle -R`, not `zle redisplay`. redisplay only marks the display dirty and
+    # zsh flushes it after the widget returns, so the OSC below left first and
+    # the erase of the typed line arrived in a *later* pty chunk — measured
+    # 5/5 in a bare zsh. Helm was handed the submission while the shell's own
+    # echo was still on screen, and the prompt rendered twice. `zle -R`
+    # refreshes now, so the erase and the OSC leave in one write, erase first,
+    # and no scheduling in the renderer can reorder them.
+    zle -R
     printf '\e]7374;%s\a' "$encoded"
   }
 
