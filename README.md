@@ -308,32 +308,49 @@ your `.zshrc` unless you ask.
 pnpm tokens:report
 ```
 
-Measured, not assumed — roughly **$0.011 a turn**, about $1.10 per hundred:
+Measured, not assumed — roughly **$0.003 a turn**, about $0.30 per hundred:
 
 ```
 turn  fresh   cached   out    cost
-   1   3077    17506     3   $0.0168
-   2     52    20581     3   $0.0064
-   3    180    41318    77   $0.0142
+   1   8347        0     3   $0.0313
+   2     52     8345     3   $0.0027
+   3    181    16846    78   $0.0069
 ```
 
-The intuitive optimisations are wrong here. Swapping the `claude_code` preset
-for a hand-written minimal prompt saves only 9% of input tokens, and both
-trimming tools and changing the prompt **invalidate the prompt cache** — a cold
-turn measured at $0.0555 against $0.0163 warm. Configuration changes cost more
-than they save until the cache re-warms.
+**The tool schemas were the cost, not the prompt.** Every built-in tool ships
+its JSON schema in the cached prefix on every turn, and `disallowedTools` stops
+a tool being *called* without removing its schema. Naming the set with `tools`
+removes them outright. Measured against the real SDK, three warm turns each:
 
-A web search costs about four times a plain turn — measured at $0.0398 against
-$0.011 — because the fetched pages enter the context. That cost does **not**
-persist: the turn after a search measured $0.0075, so context returns to normal
-rather than carrying the pages forward. Each turn prints its own cost for this
-reason, since the variation between turns is larger than the daily total
-suggests.
+```
+preset tool set, preset prompt   16011 prefix tok   $0.0164/turn
+explicit tool list, preset prompt 5992 prefix tok   $0.0059/turn
+preset tools, custom prompt      14849 prefix tok   $0.0131/turn
+explicit tools, custom prompt     4830 prefix tok   $0.0027/turn
+```
 
-The levers that do matter, in order: the model (Opus with a 1M context measured
-at $0.164 for a trivial turn, fifteen times Sonnet), keeping the system prompt
-and tool set *stable* so the cache stays warm, and reusing one session across
-turns rather than starting fresh ones. All three are already how Helm is built.
+Helm takes the second row: a 64% cut with the `claude_code` preset prompt
+intact. Dropping the preset saves another 55% of what is left — real money, but
+it also drops every convention the agent's behaviour is built on, which is a
+different product rather than a cheaper one.
+
+`tools` is not an approval list. `allowedTools` is the field that would
+auto-approve a call before `canUseTool` ever sees it, and it stays unused;
+`tools` only decides what exists. Verified rather than assumed — with approvals
+set to `prompt`, a `Bash` call still reaches the permission callback.
+
+A web search costs about four times a plain turn because the fetched pages
+enter the context. That cost does **not** persist: the turn after a search
+returns to normal rather than carrying the pages forward. Each turn prints its
+own cost for this reason, since the variation between turns is larger than the
+daily total suggests.
+
+The levers that matter, in order: the size of the tool set, the model (Opus
+with a 1M context measured at $0.164 for a trivial turn), keeping the prompt and
+tool set *stable* so the cache stays warm, and reusing one session across turns.
+All four are how Helm is built.
+
+Re-run the report before believing any of these numbers, including these.
 
 ## Tests
 

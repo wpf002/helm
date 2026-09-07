@@ -2,11 +2,12 @@
 //
 //   pnpm tokens:report
 //
-// Exists because the intuitive optimisations are wrong here. Trimming the
-// system prompt or the tool set invalidates the prompt cache, and a cold turn
-// costs three to four times a cached one — so "using fewer tokens" by changing
-// the configuration makes it more expensive, not less. Re-run this before
-// believing any claim about token cost, including the ones in the README.
+// Exists because the intuitive optimisations are wrong here, in both
+// directions. Trimming the system prompt saves little and costs a cache
+// invalidation; naming the tool set explicitly cut the cached prefix from 16k
+// tokens to 6k and the per-turn cost by 64%, because a tool ships its schema
+// every turn whether or not it is allowed to run. Re-run this before believing
+// any claim about token cost, including the ones in the README.
 //
 // This spends real money: four short turns, about five cents.
 

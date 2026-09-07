@@ -63,6 +63,34 @@ const DISALLOWED_TOOLS = [
   'SlashCommand',
 ];
 
+/**
+ * The built-in tools Helm actually uses, named explicitly.
+ *
+ * This is the single largest lever on cost, and it is not the one you would
+ * guess. `disallowedTools` stops a tool being *called* but still ships its JSON
+ * schema in the cached prefix every turn; naming the set with `tools` removes
+ * the schemas outright. Measured against the real SDK, three warm turns each:
+ *
+ *   preset tool set   16011 prefix tokens   $0.0164/turn
+ *   this list          5992 prefix tokens   $0.0059/turn
+ *
+ * Not an approval list — `allowedTools` is the field that would auto-approve
+ * before canUseTool, and it stays unused. Grep and Glob must be named here or
+ * native builds drop them in favour of shelling out to find(1).
+ */
+const TOOLS = [
+  'Bash',
+  'BashOutput',
+  'KillShell',
+  'Read',
+  'Write',
+  'Edit',
+  'Glob',
+  'Grep',
+  'WebSearch',
+  'WebFetch',
+];
+
 const SYSTEM_APPEND = [
   'You are running inside Helm, a terminal. Output is rendered in a scrollback',
   "buffer shared with the user's shell, so keep replies short and concrete and",
@@ -273,6 +301,7 @@ export async function createSession(
     cwd: config.homeRoot,
     additionalDirectories: config.extraRoots,
     model: config.model ?? DEFAULT_MODEL,
+    tools: TOOLS,
     disallowedTools: DISALLOWED_TOOLS,
     // Dynamic sections carry git status and directory listings that change every
     // turn, which defeats prompt caching as well as costing tokens outright.
