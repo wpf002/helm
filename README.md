@@ -208,8 +208,7 @@ session cannot drift from what the renderer would produce today. Capped at 8MB
 per session, oldest pruned past 20, and a write failure drops the sink rather
 than taking the terminal with it.
 
-`⌘T` new, `⌘W` close, `⌘⇧R` resume, plus `+` and `⟲` in the tab strip — the
-menu accelerators alone were undiscoverable.
+`⌘T` new, `⌘W` close, `⌘⇧R` resume (Session menu), plus `+` in the tab strip.
 
 ## What the agent can see and remember
 

@@ -50,7 +50,6 @@ export default function App(): JSX.Element {
   const switchRef = useRef<(i: number) => void>(() => {});
   const addRef = useRef<() => void>(() => {});
   const closeRef = useRef<(i: number) => void>(() => {});
-  const resumeRef = useRef<() => void>(() => {});
 
   const [, forceRender] = useState(0);
   const bump = useCallback(() => forceRender((n) => n + 1), []);
@@ -487,7 +486,6 @@ export default function App(): JSX.Element {
         await addSession(entries);
       })();
     };
-    resumeRef.current = doResume;
     const offResume = window.helm.session.onResume(doResume);
 
     let timer: number | undefined;
@@ -582,13 +580,6 @@ export default function App(): JSX.Element {
             title="New session (⌘T)"
           >
             +
-          </button>
-          <button
-            className="tab tab--resume"
-            onClick={() => resumeRef.current()}
-            title="Resume previous session (⌘⇧R)"
-          >
-            ⟲
           </button>
         </nav>
         {current?.cwd && (

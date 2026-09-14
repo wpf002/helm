@@ -377,16 +377,6 @@ body {
   font-size: 9px;
 }
 
-.tab--resume {
-  color: #5c6470;
-  font-size: 12px;
-  padding: 2px 8px;
-}
-
-.tab--resume:hover {
-  color: #6fb2ff;
-}
-
 /* ---- title bar readouts ---- */
 .titlebar__usage,
 .titlebar__nudge {
