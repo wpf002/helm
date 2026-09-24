@@ -8,7 +8,7 @@ import type {
   SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk';
 import type { PermissionDecision, PermissionRequest, StreamEvent, TokenUsage } from '@helm/shared';
-import { evaluateScope } from './scope.js';
+import { autoApproves, evaluateScope } from './scope.js';
 import { buildHelmServer, readMemory, type ToolHost } from './tools.js';
 
 export interface EngineConfig {
@@ -223,22 +223,26 @@ export async function createSession(
   /**
    * Deterministic scope check, then the user. No model on this path.
    *
-   * In 'auto' mode the scope verdict itself is the approval: a call whose
-   * resolved paths all sit inside the configured roots proceeds without
-   * asking, and anything out of scope — including a call whose paths could not
-   * be resolved — still stops for a decision. That is the whole point of the
-   * mode: it trades prompts for containment, not for trust.
+   * In 'auto' mode a call proceeds without asking when its resolved paths all
+   * sit inside the configured roots and it cannot change state through the
+   * shell. Anything out of scope, unresolved, or a mutating shell command still
+   * stops for a decision. The mode trades prompts for containment, not trust.
    */
   const ask = async (toolName: string, input: unknown): Promise<PermissionDecision> => {
     const verdict = await evaluateScope(toolName, input, config.homeRoot, roots);
 
-    if (config.permissionMode === 'auto' && !verdict.outOfScope) {
-      return {
-        id: randomUUID(),
-        behavior: 'allow',
-        persist: false,
-        reason: 'auto: every resolved path is within your roots',
-      };
+    let factors = verdict.factors;
+    if (config.permissionMode === 'auto') {
+      const auto = autoApproves(toolName, input, verdict);
+      if (auto.allow) {
+        return {
+          id: randomUUID(),
+          behavior: 'allow',
+          persist: false,
+          reason: 'auto: read-only or in-scope, and nothing here changes state through the shell',
+        };
+      }
+      if (auto.factor) factors = [...factors, auto.factor];
     }
 
     return callbacks.requestPermission({
@@ -247,7 +251,7 @@ export async function createSession(
       input,
       affectedPaths: verdict.paths,
       outOfScope: verdict.outOfScope,
-      factors: verdict.factors,
+      factors,
       roots,
     });
   };

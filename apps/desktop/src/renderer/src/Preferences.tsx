@@ -126,13 +126,13 @@ export function Preferences({
             </select>
             <span>
               <span className="pref__label">
-                {config.permissionMode === 'prompt' && 'Every out-of-scope call stops for a decision.'}
-                {config.permissionMode === 'auto' && 'Reads and in-scope work run silently.'}
+                {config.permissionMode === 'prompt' && 'Every call stops for a decision.'}
+                {config.permissionMode === 'auto' && 'Reads and in-scope file edits run silently.'}
                 {config.permissionMode === 'off' && 'Nothing is gated. The title bar turns red.'}
               </span>
               <span className="pref__hint">
                 {config.permissionMode === 'auto' &&
-                  'Anything that could change a file outside your roots still stops.'}
+                  'Shell commands that change anything, and anything outside your roots, still stop.'}
                 {config.permissionMode === 'off' &&
                   'With Full Disk Access granted this reaches your whole machine.'}
                 {config.permissionMode === 'prompt' &&

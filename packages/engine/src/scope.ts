@@ -339,3 +339,30 @@ export async function evaluateScope(
 
   return { paths, outOfScope, factors };
 }
+
+/**
+ * What 'auto' mode may approve on its own. Containment alone is not enough:
+ * the default root is the home directory, so `rm -rf ~/Documents/GitHub/flint`
+ * resolves entirely inside it and used to run without a word. A shell command
+ * that can change state stops for a decision wherever it points; reads, and
+ * in-scope file tools whose single target is shown in the call, do not.
+ */
+export function autoApproves(
+  toolName: string,
+  input: unknown,
+  verdict: ScopeVerdict,
+): { allow: boolean; factor?: Factor } {
+  if (verdict.outOfScope) return { allow: false };
+  const command = isRecord(input) && typeof input['command'] === 'string' ? input['command'] : undefined;
+  if (command !== undefined && classifyCommand(command) === 'mutating') {
+    return {
+      allow: false,
+      factor: {
+        rule: 'auto-mutating-command',
+        detail: `${toolName} can change state, so auto mode asks even inside your roots.`,
+        effect: 'out-of-scope',
+      },
+    };
+  }
+  return { allow: true };
+}

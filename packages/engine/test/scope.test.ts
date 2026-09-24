@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { classifyCommand, evaluateScope, isWithinRoots, resolveAffectedPaths } from '../src/scope.js';
+import { autoApproves, classifyCommand, evaluateScope, isWithinRoots, resolveAffectedPaths } from '../src/scope.js';
 
 /**
  * The containment tests. Every case here is a way a scope guard gets walked
@@ -170,5 +170,58 @@ describe('scope containment', () => {
     const result = await verdict('Read', { file_path: join(home, 'link.txt') });
     expect(result.factors.length).toBeGreaterThan(0);
     expect(result.factors.map((f) => f.rule)).toContain('outside-roots');
+  });
+
+  describe('auto mode', () => {
+    const auto = async (tool: string, input: unknown) =>
+      autoApproves(tool, input, await verdict(tool, input));
+
+    it.each([
+      'uptime; df -h /; vm_stat',
+      `cat ${outside}/secret.txt`,
+      'git status',
+      'ps -Ao pid,pcpu,comm -r | head -10',
+    ])('runs %j without asking', async (command) => {
+      expect((await auto('Bash', { command })).allow).toBe(true);
+    });
+
+    it('runs in-scope file tools without asking', async () => {
+      expect((await auto('Read', { file_path: join(home, 'plain.txt') })).allow).toBe(true);
+      expect((await auto('Write', { file_path: join(home, 'new.txt'), content: 'x' })).allow).toBe(true);
+    });
+
+    // Every path here resolves inside the root, which is exactly why
+    // containment alone let them through. HOME is filled in per test because
+    // it.each builds its cases before beforeAll has made the directory.
+    it.each([
+      'rm -rf HOME/sub',
+      'mv HOME/plain.txt HOME/sub/',
+      'echo x > HOME/plain.txt',
+      'sudo chown root HOME/plain.txt',
+    ])('asks before %j even inside the roots', async (template) => {
+      const command = template.replaceAll('HOME', home);
+      expect((await verdict('Bash', { command })).outOfScope).toBe(false);
+      const result = await auto('Bash', { command });
+      expect(result.allow).toBe(false);
+      expect(result.factor?.rule).toBe('auto-mutating-command');
+    });
+
+    it.each(['git push origin main', 'npm install'])(
+      'asks before %j, which names no path at all',
+      async (command) => {
+        expect((await auto('Bash', { command })).allow).toBe(false);
+      },
+    );
+
+    it('asks for the power check that has sudo in it', async () => {
+      const command =
+        'uptime; df -h /; vm_stat; pmset -g batt 2>/dev/null; sudo powermetrics -n 1 2>/dev/null || echo "no sudo access"';
+      expect((await auto('Bash', { command })).allow).toBe(false);
+    });
+
+    it('still asks for anything out of scope', async () => {
+      const result = await auto('Write', { file_path: join(outside, 'x.txt'), content: 'x' });
+      expect(result.allow).toBe(false);
+    });
   });
 });
