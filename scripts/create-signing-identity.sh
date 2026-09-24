@@ -45,8 +45,13 @@ echo "==> generating a self-signed code-signing certificate"
 openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
   -keyout "$WORK/key.pem" -out "$WORK/cert.pem" -config "$WORK/req.cnf" 2>/dev/null
 
+# OpenSSL 3 (Homebrew's, first on PATH) defaults to AES/PBKDF2 with a SHA-256
+# MAC, which `security import` cannot verify and reports as "MAC verification
+# failed (wrong password?)". Ask for the SHA-1/3DES format macOS reads; Apple's
+# LibreSSL accepts the same flags.
 openssl pkcs12 -export -inkey "$WORK/key.pem" -in "$WORK/cert.pem" \
-  -out "$WORK/bundle.p12" -passout pass:helm -name "$IDENTITY" 2>/dev/null
+  -out "$WORK/bundle.p12" -passout pass:helm -name "$IDENTITY" \
+  -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES -macalg sha1 2>/dev/null
 
 echo "==> importing into the login keychain"
 # -T grants codesign access without a prompt on every use.
