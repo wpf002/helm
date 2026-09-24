@@ -213,6 +213,23 @@ describe('scope containment', () => {
       },
     );
 
+    // run_in_terminal hands a command to the user's own shell, where it runs
+    // with a TTY and can therefore actually complete a sudo. The gate reads
+    // the `command` key for any tool name, so it covers this one too — the
+    // whole point of the tool is that these commands succeed.
+    it.each([
+      'sudo installer -pkg /tmp/x.pkg -target /',
+      'brew install --cask tailscale',
+      'sudo -v',
+    ])('asks before %j in the terminal too', async (command) => {
+      const result = await auto('mcp__helm__run_in_terminal', { command });
+      expect(result.allow).toBe(false);
+    });
+
+    it('runs a read-only command in the terminal without asking', async () => {
+      expect((await auto('mcp__helm__run_in_terminal', { command: 'git status' })).allow).toBe(true);
+    });
+
     it('asks for the power check that has sudo in it', async () => {
       const command =
         'uptime; df -h /; vm_stat; pmset -g batt 2>/dev/null; sudo powermetrics -n 1 2>/dev/null || echo "no sudo access"';
