@@ -16,6 +16,7 @@ import { createSession, routeInputWithFactors, scanPathBinaries, type AgentSessi
 import { IPC, type InputRoute, type SessionCreateOptions, type SessionInfo } from '@helm/shared';
 import type { HelmEnv } from './env.js';
 import { clearPermissionState, requestPermission, resolvePermission } from './permissions.js';
+import { cancelRun, observeForRun, runInTerminal } from './terminal-run.js';
 import { loadMcpServers } from './mcp.js';
 import { logRouting, recordFor } from './routing-log.js';
 import { loadConfig, saveConfig, type HelmConfig } from './config.js';
@@ -208,12 +209,14 @@ export function registerIpc(getWindow: () => BrowserWindow | null, env: HelmEnv)
         onData: (sessionId, data) => {
           recordPty(sessionId, data);
           recordScrollback(sessionId, data);
+          observeForRun(sessionId, data);
           send(IPC.PtyData, { sessionId, data });
         },
         onExit: (sessionId, code) => {
           sessions.delete(sessionId);
           closeTranscript(sessionId);
           dropScrollback(sessionId);
+          cancelRun(sessionId);
           send(IPC.PtyExit, { sessionId, code });
         },
       },
@@ -247,6 +250,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, env: HelmEnv)
     sessions.delete(raw);
     closeTranscript(raw);
     dropScrollback(raw);
+    cancelRun(raw);
     // A session-scoped grant dies with the session that granted it.
     clearPermissionState();
     return true;
@@ -308,6 +312,16 @@ export function registerIpc(getWindow: () => BrowserWindow | null, env: HelmEnv)
           // a prompt. Whichever session is in front is the one it can see.
           readScrollback: (lines: number) => readScrollback(activeSessionId, lines),
           memoryPath: join(homedir(), '.helm', 'memory.md'),
+          // Runs in the session the user is looking at, so a password prompt
+          // lands where they can answer it. The password goes from their
+          // keyboard into their own shell; it never reaches the model.
+          runInTerminal: async (command: string, timeoutMs?: number) => {
+            const session = activeSessionId ? sessions.get(activeSessionId) : undefined;
+            if (!session) {
+              return { exitCode: null, output: 'No terminal session is open.', timedOut: false };
+            }
+            return runInTerminal(session.id, (data) => session.write(data), command, timeoutMs);
+          },
         },
         mcpServers: loadMcpServers(),
         ...(claudeExecutable ? { pathToClaudeCodeExecutable: claudeExecutable } : {}),

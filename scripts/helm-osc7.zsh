@@ -44,6 +44,16 @@ if [[ "$TERM_PROGRAM" == "Helm" ]] && [[ -n "$ZSH_VERSION" ]] && [[ -z "$_HELM_P
   }
 
   add-zsh-hook preexec _helm_report_command
+
+  # Report the exit status of every finished command. This is how Helm knows a
+  # command it ran in your shell is done, and how it went — without appending a
+  # marker to the line you can see. precmd fires just before the next prompt,
+  # so $? here is the status of the command that just ended.
+  _helm_report_status() {
+    printf '\e]7377;%s\a' "$?"
+  }
+
+  add-zsh-hook precmd _helm_report_status
 fi
 
 # Hand Helm the finished command line at the moment you press Enter.

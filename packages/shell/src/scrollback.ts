@@ -80,7 +80,9 @@ function splitPendingEscape(text: string): [ready: string, pending: string] {
   return terminated ? [text, ''] : [text.slice(0, start), tail];
 }
 
-function clean(data: string): string {
+/** Strips escape sequences from pty output. Exported so a captured command's
+ *  output can be cleaned the same way the scrollback is. */
+export function stripAnsi(data: string): string {
   return data.replace(/\r\n/g, '\n').replace(ANSI, '').replace(/\r/g, '\n');
 }
 
@@ -96,7 +98,7 @@ export function recordScrollback(sessionId: string, data: string): void {
   buffer.escape = pending;
   if (!ready) return;
 
-  const text = buffer.partial + clean(ready);
+  const text = buffer.partial + stripAnsi(ready);
   const parts = text.split('\n');
   buffer.partial = (parts.pop() ?? '').slice(0, MAX_LINE);
   for (const part of parts) buffer.lines.push(part.slice(0, MAX_LINE));

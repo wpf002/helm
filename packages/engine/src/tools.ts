@@ -16,6 +16,11 @@ export interface ToolHost {
   readScrollback?: (lines: number) => string;
   /** Where notes are kept across sessions. */
   memoryPath?: string;
+  /** Runs a command in the user's own pty, which has a controlling terminal. */
+  runInTerminal?: (
+    command: string,
+    timeoutMs?: number,
+  ) => Promise<{ exitCode: number | null; output: string; timedOut: boolean }>;
 }
 
 const text = (body: string): { content: { type: 'text'; text: string }[] } => ({
@@ -44,9 +49,42 @@ export function readMemory(path: string | undefined): string {
 export async function buildHelmServer(
   host: ToolHost,
 ): Promise<McpSdkServerConfigWithInstance | null> {
-  if (!host.readScrollback && !host.memoryPath) return null;
+  if (!host.readScrollback && !host.memoryPath && !host.runInTerminal) return null;
   const { createSdkMcpServer, tool } = await import('@anthropic-ai/claude-agent-sdk');
   const tools = [];
+
+  if (host.runInTerminal) {
+    const run = host.runInTerminal;
+    tools.push(
+      tool(
+        'run_in_terminal',
+        "Run a command in the user's own terminal, which has a real controlling " +
+          'terminal (TTY). Use this INSTEAD of Bash whenever a command needs one: ' +
+          'anything with `sudo`, an installer that asks a question, `ssh` to a host ' +
+          'that wants a passphrase, or a tool that refuses to run non-interactively. ' +
+          'The user sees the command run and types any password themselves — you ' +
+          'never see it and must never ask them for it. Returns the exit status and ' +
+          'the output. Never pass a password, passphrase or token inside the command.',
+        {
+          command: z.string().min(1).max(4000),
+          timeout_seconds: z.number().int().min(1).max(600).optional(),
+        },
+        async (args) => {
+          const result = await run(
+            args.command,
+            args.timeout_seconds ? args.timeout_seconds * 1000 : undefined,
+          );
+          if (result.timedOut) {
+            return text(
+              `Still running after the timeout. Output so far:\n${result.output}\n\n` +
+                'It may be waiting for input on screen — ask the user what it shows.',
+            );
+          }
+          return text(`exit ${result.exitCode}\n${result.output || '(no output)'}`);
+        },
+      ),
+    );
+  }
 
   if (host.readScrollback) {
     const read = host.readScrollback;

@@ -210,6 +210,30 @@ than taking the terminal with it.
 
 `⌘T` new, `⌘W` close, `⌘⇧R` resume (Session menu), plus `+` in the tab strip.
 
+## sudo, and commands that need a terminal
+
+The agent's Bash tool runs in the SDK subprocess with no controlling terminal,
+so `sudo` cannot read a password, an installer cannot prompt, and `ssh` cannot
+ask for a passphrase. Helm's own pane is a real TTY — `tty` reports
+`/dev/ttysNNN` and `test -t 0` is true — so `run_in_terminal` sends those
+commands there instead.
+
+**You type the password, into your own shell.** It never reaches the model, and
+the agent is instructed never to ask for one or put one in a command. What comes
+back is the exit status and the output.
+
+Completion is detected without polluting the line you see: the shell hook's
+`precmd` emits `$?` over OSC 7377, which is invisible, so the command Helm runs
+appears exactly as you would have typed it.
+
+Verified end to end against the installed app: `(echo MARKER-ALPHA; exit 7)` ran
+in the real shell and returned exit 7 to the agent, and `sudo -p` printed its
+prompt in the pane rather than failing with "must be run from a terminal".
+
+The command still goes through the same scope check as Bash — `collectRaw`
+reads the `command` key for any tool — so `sudo` is classified as mutating and
+stops for approval in `prompt` and `auto` modes.
+
 ## What the agent can see and remember
 
 Two tools Helm gives it that a chat window cannot, both in-process through the
