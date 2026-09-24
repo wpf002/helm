@@ -27,6 +27,12 @@ extraResources:
   - from: ../../scripts/helm-osc7.zsh
     to: helm-osc7.zsh
 
+# No native rebuild at package time. node-pty 1.1.0 is N-API, so its prebuilt
+# binary already loads under Electron (see scripts/postinstall.mjs). The rebuild
+# only ever failed: the bundled node-gyp 9 imports distutils, which Python 3.12
+# removed, so packaging broke on any Mac with a current Python.
+npmRebuild: false
+
 asarUnpack:
   # Both spawn real processes and resolve files relative to their own location,
   # which does not work from inside an asar archive.
