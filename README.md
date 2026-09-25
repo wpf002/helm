@@ -104,6 +104,20 @@ pnpm package
 pnpm sign:dev
 ```
 
+### Keep it current
+
+```bash
+./scripts/setup-auto-update.sh
+```
+
+Clones a deploy-only copy to `~/helm` and loads `com.helm.update`, which checks
+`origin/main` every 5 minutes. A new commit is tested (`pnpm test`, `typecheck`)
+and then installed with `install.sh`, but only while Helm is closed: if it is
+open you get one notification, and the first check after you quit installs it.
+A commit that fails the tests is skipped until a newer one lands. `~/helm` is
+reset to GitHub on every update, so work in your own clone and push. Log:
+`~/.helm/update.log`.
+
 ## macOS specifics
 
 Full Disk Access is required or reads into Documents, Desktop, and Downloads
@@ -283,8 +297,12 @@ processes and always were; this is just the first time it was tested.
 
 ## Approvals
 
-Three modes, in `~/.helm/config.json` or Preferences: ask about everything out
-of scope, ask only before writes outside your roots, or never ask. The mode is
+Three modes, in `~/.helm/config.json` or Preferences. Prompt asks about every
+call. Auto runs reads and in-scope file edits silently, but still asks before
+anything outside your roots and before any shell command that can change state
+(`rm`, `mv`, `>`, `sudo`, `git push`, installs), even inside them: the default
+root is your home directory, so containment alone would wave `rm -rf ~/code`
+through. Off never asks. The mode is
 read in one place — Preferences wins over `.env` — because the title bar has to
 show the same value the engine enforces; a bar reading "guarded" over an
 unguarded agent is worse than no bar. Changing it disposes the running agent so

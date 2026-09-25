@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Keeps /Applications/Helm.app on origin/main. Checks every 5 minutes, and
+     installs only while Helm is closed. Runs from the deploy-only checkout at
+     ~/helm (launchd agents cannot execute from ~/Documents). Set up with
+     scripts/setup-auto-update.sh. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.helm.update</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>/Users/willfoti/helm/scripts/auto_update.sh</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HELM_REPO</key><string>/Users/willfoti/helm</string>
+    <key>PATH</key><string>/Users/willfoti/.nvm/versions/node/v24.15.0/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>StartInterval</key><integer>300</integer>
+  <key>RunAtLoad</key><true/>
+  <key>StandardOutPath</key><string>/Users/willfoti/.helm/update.log</string>
+  <key>StandardErrorPath</key><string>/Users/willfoti/.helm/update.err.log</string>
+</dict>
+</plist>
