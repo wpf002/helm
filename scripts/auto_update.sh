@@ -18,7 +18,9 @@ APP_BIN="/Applications/Helm.app/Contents/MacOS/Helm"
 
 log() { echo "$(date '+%F %T') $*"; }
 notify() { osascript -e "display notification \"$1\" with title \"Helm\"" >/dev/null 2>&1 || true; }
-helm_running() { pgrep -qf "^$APP_BIN\$"; }
+# Arguments are allowed after the path: a launch that passes any must still
+# count as running, or the update would quit Helm out from under you.
+helm_running() { pgrep -qf "^$APP_BIN( |$)"; }
 
 cd "$REPO" || { log "no checkout at $REPO"; exit 0; }
 
