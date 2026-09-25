@@ -56,6 +56,9 @@ export default function App(): JSX.Element {
   const [pendingPermission, setPendingPermission] = useState<PermissionRequest | null>(null);
   const [permissionMode, setPermissionMode] = useState<'off' | 'prompt' | 'auto'>('prompt');
   const [busy, setBusy] = useState(false);
+  /** A command the agent started is waiting on a keystroke from the user. */
+  const [awaitingInput, setAwaitingInput] = useState(false);
+  const awaitingRef = useRef(false);
   const [config, setConfig] = useState<HelmConfig | null>(null);
   const [usage, setUsage] = useState<UsageTotals | null>(null);
   const [hook, setHook] = useState<ShellHookStatus | null>(null);
@@ -483,6 +486,28 @@ export default function App(): JSX.Element {
       if (hard) window.helm.pty.write(s.id, CTRL_C);
       window.helm.pty.write(s.id, '\f');
     };
+    // The prompt itself is one short row on a screen the agent is still
+    // writing to, so it reads as noise and the user waits for a cue that never
+    // comes. This is the cue: its own line, in the terminal's own colours,
+    // with the cursor parked underneath it.
+    const offAwaiting = window.helm.onAwaitingInput(({ sessionId, waiting }) => {
+      if (!waiting) {
+        awaitingRef.current = false;
+        setAwaitingInput(false);
+        return;
+      }
+      const s = byId(sessionId) ?? active();
+      if (!s) return;
+      s.writer.endLine();
+      s.term.write(
+        `\r\n${ESC}[1m${ESC}[38;5;215m  ⌨  Type your password here, then press Enter.${ESC}[0m` +
+          ` ${ESC}[38;5;242m(it is not shown, and never leaves this machine)${ESC}[0m\r\n`,
+      );
+      s.term.focus();
+      awaitingRef.current = true;
+      setAwaitingInput(true);
+    });
+
     const offClear = window.helm.onClear(clearTerminal);
     const offNewTab = window.helm.session.onNew(() => void addSession());
     const offCloseTab = window.helm.session.onClose(() => void closeSession(activeRef.current));
@@ -534,6 +559,7 @@ export default function App(): JSX.Element {
       offExit();
       offStream();
       offPermission();
+      offAwaiting();
       offClear();
       offNewTab();
       offCloseTab();
@@ -599,7 +625,12 @@ export default function App(): JSX.Element {
         )}
         {/* A dot, not a sentence. The streaming output already says a turn is
             running, and ^C is the same key it has always been. */}
-        {busy && <span className="titlebar__busy" title="Agent working — ^C to stop" />}
+        {awaitingInput && (
+          <span className="titlebar__awaiting">waiting for your password</span>
+        )}
+        {busy && !awaitingInput && (
+          <span className="titlebar__busy" title="Agent working — ^C to stop" />
+        )}
         {hook && !hook.installed && (
           <button
             className="titlebar__nudge"

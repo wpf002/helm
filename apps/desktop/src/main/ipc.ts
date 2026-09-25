@@ -17,7 +17,12 @@ import { createSession, routeInputWithFactors, scanPathBinaries, type AgentSessi
 import { IPC, type InputRoute, type SessionCreateOptions, type SessionInfo } from '@helm/shared';
 import type { HelmEnv } from './env.js';
 import { clearPermissionState, requestPermission, resolvePermission } from './permissions.js';
-import { cancelRun, observeForRun, runInTerminal } from './terminal-run.js';
+import {
+  cancelRun,
+  observeForRun,
+  runInTerminal,
+  setAwaitingInputHandler,
+} from './terminal-run.js';
 import { loadMcpServers } from './mcp.js';
 import { logRouting, recordFor } from './routing-log.js';
 import { loadConfig, saveConfig, type HelmConfig } from './config.js';
@@ -201,6 +206,15 @@ export function registerIpc(getWindow: () => BrowserWindow | null, env: HelmEnv)
     const win = getWindow();
     if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
   };
+
+  // A command the agent started has stopped to ask for a password. The prompt
+  // itself is one short row in a screen the agent is still writing to, so it
+  // reads as noise. The renderer draws something that does not.
+  setAwaitingInputHandler((sessionId, waiting) => {
+    send('helm:awaiting-input', { sessionId, waiting });
+    const win = getWindow();
+    if (win && !win.isDestroyed()) win.flashFrame(waiting && !win.isFocused());
+  });
 
   ipcMain.handle(IPC.SessionNew, async (_event, raw: unknown): Promise<SessionInfo> => {
     const { cols, rows } = readSize(raw as SessionCreateOptions);

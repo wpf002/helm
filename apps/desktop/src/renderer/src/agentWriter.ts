@@ -171,6 +171,14 @@ export class AgentWriter {
     this.wroteSinceGap = false;
   }
 
+  /**
+   * Ends any open gutter line so something else can write a clean row. Used
+   * when the terminal needs to say something of its own mid-turn.
+   */
+  endLine(): void {
+    this.closeLine();
+  }
+
   /** True while a turn is producing output, so Ctrl+C knows to interrupt. */
   get isStreaming(): boolean {
     return this.streaming;

@@ -32,10 +32,38 @@ export interface TerminalRunResult {
   timedOut: boolean;
 }
 
+/**
+ * What a program waiting for a secret looks like. sudo, ssh, gpg and the rest
+ * all print a short line ending in a colon and then block with echo off.
+ */
+const PROMPT_PATTERNS = [
+  /(^|\n)[Pp]assword:\s*$/,
+  /(^|\n)[Pp]assword for [^\n]*:\s*$/,
+  /[Pp]assphrase[^\n]*:\s*$/,
+  /\[sudo\] password for [^\n]*:\s*$/,
+  /(^|\n)Verification code:\s*$/,
+];
+
+/** A human has to notice the prompt and go and type. Two minutes is the
+ *  default for a command; a prompt gets much longer before giving up. */
+const PROMPT_TIMEOUT_MS = 600_000;
+
 interface Pending {
   chunks: string[];
   resolve: (result: TerminalRunResult) => void;
   timer: NodeJS.Timeout;
+  timeoutMs: number;
+  /** Set once the prompt has been announced, so it is announced only once. */
+  awaiting: boolean;
+}
+
+/** Notified when a command stops to ask the user for something. */
+let onAwaitingInput: ((sessionId: string, waiting: boolean) => void) | null = null;
+
+export function setAwaitingInputHandler(
+  handler: (sessionId: string, waiting: boolean) => void,
+): void {
+  onAwaitingInput = handler;
 }
 
 /** At most one command in flight per session: a shell runs one thing at a time. */
@@ -46,6 +74,8 @@ function finish(sessionId: string, exitCode: number | null, timedOut: boolean): 
   if (!run) return;
   pending.delete(sessionId);
   clearTimeout(run.timer);
+  // The prompt is answered, or gave up waiting. Either way stop saying so.
+  if (run.awaiting) onAwaitingInput?.(sessionId, false);
 
   const text = stripAnsi(run.chunks.join(''))
     .replace(/\r\n/g, '\n')
@@ -58,9 +88,16 @@ function finish(sessionId: string, exitCode: number | null, timedOut: boolean): 
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 
+  const body =
+    text.length > MAX_OUTPUT ? text.slice(0, MAX_OUTPUT) + '\n…output truncated' : text;
   run.resolve({
     exitCode,
-    output: text.length > MAX_OUTPUT ? text.slice(0, MAX_OUTPUT) + '\n…output truncated' : text,
+    // A timeout at a prompt is not a hung command; saying so stops the agent
+    // guessing, and stops it polling terminal_output every few seconds.
+    output:
+      timedOut && run.awaiting
+        ? `Still waiting at a prompt for the user to type something.\n${body}`
+        : body,
     timedOut,
   });
 }
@@ -75,6 +112,23 @@ export function observeForRun(sessionId: string, data: string): void {
 
   run.chunks.push(data);
   const joined = run.chunks.join('');
+
+  // A program that has stopped to ask for a secret looks finished from the
+  // outside: no more output, no exit status. Say so, restart the clock, and
+  // let the renderer put it where the user cannot miss it.
+  if (!run.awaiting) {
+    const tail = stripAnsi(joined).replace(/\r/g, '\n').slice(-200);
+    if (PROMPT_PATTERNS.some((p) => p.test(tail))) {
+      run.awaiting = true;
+      clearTimeout(run.timer);
+      run.timer = setTimeout(
+        () => finish(sessionId, null, true),
+        Math.max(run.timeoutMs, PROMPT_TIMEOUT_MS),
+      );
+      onAwaitingInput?.(sessionId, true);
+    }
+  }
+
   const match = STATUS_OSC.exec(joined);
   if (!match) return;
 
@@ -144,6 +198,8 @@ export function runInTerminal(
         resolve(result);
       },
       timer,
+      timeoutMs,
+      awaiting: false,
     });
     // A newline, not the Enter key: the zsh widget binds ^M and would hand the
     // line back to Helm for routing instead of running it. ^J stays bound to

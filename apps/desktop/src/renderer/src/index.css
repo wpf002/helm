@@ -76,6 +76,14 @@ body {
   border-radius: 5px;
 }
 
+.titlebar__awaiting {
+  margin-left: auto;
+  color: #e0c07a;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .titlebar__busy {
   margin-left: auto;
   width: 7px;

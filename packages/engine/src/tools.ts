@@ -64,7 +64,13 @@ export async function buildHelmServer(
           'that wants a passphrase, or a tool that refuses to run non-interactively. ' +
           'The user sees the command run and types any password themselves — you ' +
           'never see it and must never ask them for it. Returns the exit status and ' +
-          'the output. Never pass a password, passphrase or token inside the command.',
+          'the output. Never pass a password, passphrase or token inside the command. ' +
+          'Ask for the password ONCE: never use `sudo -k`, which throws away the ' +
+          'cached credential and makes the user type it again for every later sudo ' +
+          'in the same job. If a job needs several sudo commands, put them in one ' +
+          'call so a single prompt covers all of them. If this returns that it is ' +
+          'still waiting at a prompt, the user has not typed yet — say so once and ' +
+          'wait, do not re-run the command and do not poll terminal_output.',
         {
           command: z.string().min(1).max(4000),
           timeout_seconds: z.number().int().min(1).max(600).optional(),

@@ -143,6 +143,12 @@ const api = {
    * `hard` asks for a full reset rather than a scrollback wipe.
    */
   onClear: (handler: (hard: boolean) => void): (() => void) => subscribe('helm:clear', handler),
+
+  /** A command the agent started has stopped to ask the user for something. */
+  onAwaitingInput: (
+    handler: (payload: { sessionId: string; waiting: boolean }) => void,
+  ): (() => void) =>
+    subscribe('helm:awaiting-input', handler),
 };
 
 export type HelmApi = typeof api;

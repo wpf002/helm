@@ -218,6 +218,19 @@ ask for a passphrase. Helm's own pane is a real TTY — `tty` reports
 `/dev/ttysNNN` and `test -t 0` is true — so `run_in_terminal` sends those
 commands there instead.
 
+When a command stops to ask for a secret, Helm says so rather than leaving one
+short `Password:` row buried under agent output. The prompt is detected in the
+pty stream, the terminal prints its own line under it, the pane takes focus,
+the title bar reads *waiting for your password*, and the window flashes in the
+Dock if it is behind something. The tool's timeout stretches to ten minutes at
+that point, because a human has to notice and walk over, and a timeout while
+waiting reports that it is waiting — so the agent says so once instead of
+polling.
+
+Ask once: `sudo -k` throws away the cached credential and makes you type it
+again for every later sudo in the job, so the tool description forbids it and
+asks for several sudo commands to be sent in one call.
+
 **You type the password, into your own shell.** It never reaches the model, and
 the agent is instructed never to ask for one or put one in a command. What comes
 back is the exit status and the output.
