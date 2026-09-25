@@ -6,6 +6,7 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, sep } from 'node:path';
 import {
+  adoptScrollback,
   dropScrollback,
   readScrollback,
   recordScrollback,
@@ -203,6 +204,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null, env: HelmEnv)
 
   ipcMain.handle(IPC.SessionNew, async (_event, raw: unknown): Promise<SessionInfo> => {
     const { cols, rows } = readSize(raw as SessionCreateOptions);
+    const replaces =
+      isRecord(raw) && typeof raw['replaces'] === 'string' ? raw['replaces'] : undefined;
     const session = spawnPty(
       { shell: env.shell, cwd: env.homeRoot, env: cleanEnv(), cols, rows },
       {
@@ -215,7 +218,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null, env: HelmEnv)
         onExit: (sessionId, code) => {
           sessions.delete(sessionId);
           closeTranscript(sessionId);
-          dropScrollback(sessionId);
+          // Scrollback deliberately survives: what the dead shell printed is
+          // still on screen, so the agent must still be able to read it back.
+          // Dropping it here made terminal_output answer "no output yet in
+          // this session" about a screen full of output. It is dropped when
+          // the session is closed.
           cancelRun(sessionId);
           send(IPC.PtyExit, { sessionId, code });
         },
@@ -223,6 +230,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null, env: HelmEnv)
     );
 
     sessions.set(session.id, session);
+    if (replaces) adoptScrollback(replaces, session.id);
     await openTranscript(session.id);
     void pruneTranscripts();
     return {
@@ -316,9 +324,23 @@ export function registerIpc(getWindow: () => BrowserWindow | null, env: HelmEnv)
           // lands where they can answer it. The password goes from their
           // keyboard into their own shell; it never reaches the model.
           runInTerminal: async (command: string, timeoutMs?: number) => {
-            const session = activeSessionId ? sessions.get(activeSessionId) : undefined;
+            // A shell that just died is replaced by the renderer within a
+            // frame or two, so wait for the replacement rather than telling
+            // the agent there is no terminal — which is what sent it off to
+            // ask the user to open Terminal.app.
+            let session = activeSessionId ? sessions.get(activeSessionId) : undefined;
+            for (let i = 0; i < 20 && !session; i++) {
+              await new Promise((resolve) => setTimeout(resolve, 250));
+              session = activeSessionId ? sessions.get(activeSessionId) : undefined;
+            }
             if (!session) {
-              return { exitCode: null, output: 'No terminal session is open.', timedOut: false };
+              return {
+                exitCode: null,
+                output:
+                  'The terminal pane is not accepting commands. Tell the user to ' +
+                  'open a Helm tab with ⌘T, and do not suggest another terminal app.',
+                timedOut: false,
+              };
             }
             return runInTerminal(session.id, (data) => session.write(data), command, timeoutMs);
           },

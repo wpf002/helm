@@ -101,7 +101,13 @@ export default function App(): JSX.Element {
 
     /** Spawns (or respawns) the pty behind a session. */
     const start = async (s: Session): Promise<void> => {
-      const info = await window.helm.pty.create({ cols: s.term.cols, rows: s.term.rows });
+      const info = await window.helm.pty.create({
+        cols: s.term.cols,
+        rows: s.term.rows,
+        // Restarting in the same pane: carry the scrollback across, since what
+        // the old shell printed is still on screen.
+        ...(s.id ? { replaces: s.id } : {}),
+      });
       if (disposed) return;
       s.id = info.id;
       s.home = info.cwd;
@@ -338,8 +344,14 @@ export default function App(): JSX.Element {
       const s = byId(sessionId);
       if (!s) return;
       s.exited = code;
-      notice(s, `[shell exited with code ${code} — press Enter to start a new one]`);
       bump();
+      // Bring the shell straight back rather than waiting for a keypress. A
+      // dead pane is a dead end for the agent too: run_in_terminal had nothing
+      // to write to and terminal_output had nothing to read, so the agent
+      // concluded no terminal was open and asked the user to go and open one.
+      // Closing the tab is ⌘W; a pane that stays dead serves nobody.
+      notice(s, `[shell exited with code ${code} — starting a new one]`);
+      void start(s);
     });
 
     const offStream = window.helm.agent.onStream((event) => {

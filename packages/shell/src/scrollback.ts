@@ -121,3 +121,22 @@ export function readScrollback(sessionId: string | null, lines: number): string 
 export function dropScrollback(sessionId: string): void {
   buffers.delete(sessionId);
 }
+
+/**
+ * Moves a dead session's history onto its replacement.
+ *
+ * Restarting a shell makes a new pty with a new id, but the pane and what is
+ * drawn in it carry straight on. Without this the agent is told "no output yet
+ * in this session" about a screen the user is looking at.
+ */
+export function adoptScrollback(oldId: string, newId: string): void {
+  const previous = buffers.get(oldId);
+  if (!previous || oldId === newId) return;
+  buffers.delete(oldId);
+  const existing = buffers.get(newId);
+  if (!existing) {
+    buffers.set(newId, previous);
+    return;
+  }
+  existing.lines = [...previous.lines, ...existing.lines].slice(-MAX_LINES);
+}

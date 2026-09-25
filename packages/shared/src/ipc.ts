@@ -78,6 +78,13 @@ export interface PtyExitEvent {
 export interface SessionCreateOptions {
   cols: number;
   rows: number;
+  /**
+   * The session this one replaces, when a dead shell is being restarted in the
+   * same pane. The pane is visually continuous, so its scrollback is carried
+   * over — otherwise the agent is told "no output yet" about a screen the user
+   * can still read.
+   */
+  replaces?: string;
 }
 
 /** One persisted transcript entry. Replayed through the same render path. */

@@ -10,6 +10,10 @@
 // the model, and Helm never sees it: the agent gets the command's output and
 // exit status, nothing else.
 
+import { randomUUID } from 'node:crypto';
+import { rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { stripAnsi } from '@helm/shell';
 
 /** A command that never finishes must not hold the tool call open forever. */
@@ -84,6 +88,28 @@ export function isRunning(sessionId: string): boolean {
   return pending.has(sessionId);
 }
 
+/**
+ * Anything with a newline in it goes to a file and runs as one line.
+ *
+ * Writing a multi-line script into an interactive line editor types it a line
+ * at a time, and a heredoc, a `for` loop or a stray `#` comment then arrives in
+ * pieces the editor is free to reinterpret. It killed a real shell: a heredoc
+ * writing sshd_config produced `zsh: invalid mode specification` and the shell
+ * exited, after which nothing else in this file could work. A script file has
+ * no such failure mode, and the user still sees exactly one command run.
+ */
+function asSingleLine(command: string): { line: string; scriptPath?: string } {
+  const trimmed = command.replace(/\s+$/, '');
+  if (!trimmed.includes('\n')) return { line: trimmed };
+
+  const scriptPath = join(
+    tmpdir(),
+    `helm-run-${randomUUID().slice(0, 8)}.zsh`,
+  );
+  writeFileSync(scriptPath, trimmed + '\n', { mode: 0o700 });
+  return { line: `zsh ${scriptPath}`, scriptPath };
+}
+
 export function runInTerminal(
   sessionId: string,
   write: (data: string) => void,
@@ -98,13 +124,31 @@ export function runInTerminal(
     });
   }
 
+  let prepared: { line: string; scriptPath?: string };
+  try {
+    prepared = asSingleLine(command);
+  } catch (error) {
+    return Promise.resolve({
+      exitCode: null,
+      output: `Could not stage the command: ${(error as Error).message}`,
+      timedOut: false,
+    });
+  }
+
   return new Promise<TerminalRunResult>((resolve) => {
     const timer = setTimeout(() => finish(sessionId, null, true), timeoutMs);
-    pending.set(sessionId, { chunks: [], resolve, timer });
+    pending.set(sessionId, {
+      chunks: [],
+      resolve: (result) => {
+        if (prepared.scriptPath) rmSync(prepared.scriptPath, { force: true });
+        resolve(result);
+      },
+      timer,
+    });
     // A newline, not the Enter key: the zsh widget binds ^M and would hand the
     // line back to Helm for routing instead of running it. ^J stays bound to
     // accept-line, which is why shell-routed lines are submitted this way too.
-    write(command.replace(/\n+$/, '') + '\n');
+    write(prepared.line + '\n');
   });
 }
 

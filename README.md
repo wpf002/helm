@@ -222,6 +222,14 @@ commands there instead.
 the agent is instructed never to ask for one or put one in a command. What comes
 back is the exit status and the output.
 
+A multi-line command goes to a temp script and runs as one line. Writing a
+script into an interactive line editor types it a line at a time, and a heredoc
+then arrives in pieces the editor is free to reinterpret — a heredoc writing
+sshd_config produced `zsh: invalid mode specification` and killed the shell,
+after which nothing else here worked. A pane whose shell dies now restarts it
+instead of waiting for a keypress, and carries the scrollback across so the
+agent can still read what the dead shell printed.
+
 Completion is detected without polluting the line you see: the shell hook's
 `precmd` emits `$?` over OSC 7377, which is invisible, so the command Helm runs
 appears exactly as you would have typed it.

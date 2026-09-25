@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { dropScrollback, readScrollback, recordScrollback } from '../src/scrollback.js';
+import {
+  adoptScrollback,
+  dropScrollback,
+  readScrollback,
+  recordScrollback,
+} from '../src/scrollback.js';
 
 const ESC = String.fromCharCode(0x1b);
 const BEL = String.fromCharCode(0x07);
@@ -52,6 +57,17 @@ describe('scrollback', () => {
     const lines = readScrollback(S, 300).split('\n');
     expect(lines).toHaveLength(300);
     expect(lines[lines.length - 1]).toBe('line 499');
+  });
+
+  it('carries history onto a restarted shell', () => {
+    recordScrollback(S, 'before the shell died\r\n');
+    adoptScrollback(S, 'replacement');
+    expect(readScrollback('replacement', 10)).toBe('before the shell died');
+    // The dead session is gone, not duplicated.
+    expect(readScrollback(S, 10)).toBe('');
+    recordScrollback('replacement', 'after the restart\r\n');
+    expect(readScrollback('replacement', 10)).toBe('before the shell died\nafter the restart');
+    dropScrollback('replacement');
   });
 
   it('returns nothing for a session it has never seen', () => {
