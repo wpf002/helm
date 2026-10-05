@@ -3,11 +3,13 @@
 # (com.helm.update, every 5 minutes) from a deploy-only checkout, never from the
 # clone you work in: it hard-resets $HELM_REPO to GitHub.
 #
-#   push to main -> next tick builds, tests, signs and installs it
+#   push to main -> next tick tests, builds and signs it, even with Helm open
+#                -> the moment Helm is closed, it is copied in (seconds)
 #
-# It never quits Helm under you. If Helm is open when a new commit lands, it
-# posts one notification and waits; the first tick after you quit installs it.
-# A commit that fails the gate is skipped until a newer one arrives.
+# It never quits Helm under you. Installing used to wait for a tick that found
+# Helm closed, and a quit-and-reopen inside five minutes missed it every time,
+# so a tick with an update ready now watches for Helm to close instead of
+# exiting. A commit that fails the gate is skipped until a newer one arrives.
 set -u
 REPO="${HELM_REPO:-$HOME/helm}"   # deploy-only; never point this at a dev clone
 STATE="$HOME/.helm"
@@ -15,6 +17,8 @@ STAMP="$STATE/installed-sha"      # what /Applications/Helm.app was built from
 FAILED="$STATE/update-failed-sha" # last commit that failed the gate
 NOTIFIED="$STATE/update-notified-sha"
 CHECKED="$STATE/update-checked"    # when the last successful check ran
+BUILT="$STATE/update-built-sha"    # commit whose app is built, signed and ready to copy in
+WAIT_TICKS="${HELM_UPDATE_WAIT_TICKS:-90}" # 3s each: watch for a quit for most of the 5 minutes
 APP_BIN="/Applications/Helm.app/Contents/MacOS/Helm"
 
 log() { echo "$(date '+%F %T') $*"; }
@@ -37,42 +41,51 @@ short=${target[1,7]}
 [ "$target" = "$(cat "$STAMP" 2>/dev/null)" ] && exit 0
 [ "$target" = "$(cat "$FAILED" 2>/dev/null)" ] && exit 0
 
+if [ "$target" != "$(cat "$BUILT" 2>/dev/null)" ]; then
+  log "building $short"
+  git reset --hard --quiet "$target"
+  subject=$(git log -1 --format=%s)
+  if ! pnpm install --frozen-lockfile >/dev/null 2>&1 \
+    || ! pnpm test >/dev/null 2>&1 \
+    || ! pnpm typecheck >/dev/null 2>&1; then
+    echo "$target" > "$FAILED"
+    log "gate failed for $short ($subject); keeping the installed build"
+    notify "Update $short failed its tests. Kept the current Helm."
+    exit 0
+  fi
+  # Building never touches /Applications, so it is safe with Helm open.
+  if ! HELM_INSTALL_STEP=build ./scripts/install.sh >/dev/null 2>&1; then
+    echo "$target" > "$FAILED"
+    log "build failed for $short; run scripts/install.sh by hand from $REPO to see why"
+    notify "Update $short failed to build. Kept the current Helm."
+    exit 0
+  fi
+  echo "$target" > "$BUILT"
+  log "built $short ($subject)"
+fi
+subject=$(git log -1 --format=%s "$target")
+
 if helm_running; then
   if [ "$target" != "$(cat "$NOTIFIED" 2>/dev/null)" ]; then
-    notify "Update $short is ready. Quit Helm to install it."
+    notify "Helm update ready. Quit Helm to install it; it takes a few seconds."
     echo "$target" > "$NOTIFIED"
     log "update $short ready; waiting for Helm to quit"
   fi
-  exit 0
+  for _ in $(seq 1 "$WAIT_TICKS"); do
+    sleep 3
+    helm_running || break
+  done
+  helm_running && exit 0 # the next tick keeps watching
 fi
 
-log "building $short"
-git reset --hard --quiet "$target"
-subject=$(git log -1 --format=%s)
-
-if ! pnpm install --frozen-lockfile >/dev/null 2>&1 \
-  || ! pnpm test >/dev/null 2>&1 \
-  || ! pnpm typecheck >/dev/null 2>&1; then
-  echo "$target" > "$FAILED"
-  log "gate failed for $short ($subject); keeping the installed build"
-  notify "Update $short failed its tests. Kept the current Helm."
-  exit 0
-fi
-
-# The gate takes a while. If Helm was opened meanwhile, install.sh would quit
-# it, so wait for the next tick instead.
-if helm_running; then
-  log "Helm opened during the build of $short; will install after it quits"
-  exit 0
-fi
-
-if ./scripts/install.sh >/dev/null 2>&1; then
+if HELM_INSTALL_STEP=install ./scripts/install.sh >/dev/null 2>&1; then
   echo "$target" > "$STAMP"
-  rm -f "$FAILED"
+  rm -f "$FAILED" "$BUILT"
   log "installed $short ($subject)"
-  notify "Updated to $short: $subject"
+  notify "Helm is updated ($subject). Open it again to use it."
 else
-  echo "$target" > "$FAILED"
-  log "install.sh failed for $short; run it by hand from $REPO to see why"
-  notify "Update $short failed to install. Kept the current Helm."
+  # The built app was not usable; build it again next tick rather than giving up.
+  rm -f "$BUILT"
+  log "install failed for $short; will rebuild and retry"
+  notify "Helm update did not install. It will try again."
 fi

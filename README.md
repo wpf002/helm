@@ -111,10 +111,11 @@ pnpm sign:dev
 ```
 
 Clones a deploy-only copy to `~/helm` and loads `com.helm.update`, which checks
-`origin/main` every 5 minutes. A new commit is tested (`pnpm test`, `typecheck`)
-and then installed with `install.sh`, but only while Helm is closed: if it is
-open you get one notification, and the first check after you quit installs it.
-A commit that fails the tests is skipped until a newer one lands. `~/helm` is
+`origin/main` every 5 minutes. A new commit is tested (`pnpm test`, `typecheck`),
+built and signed right away, even with Helm open (`HELM_INSTALL_STEP=build`).
+Copying it into /Applications waits for Helm to close: you get one notification,
+the updater watches for the quit, and the new version is in place a few seconds
+later. A commit that fails the tests is skipped until a newer one lands. `~/helm` is
 reset to GitHub on every update, so work in your own clone and push. Log:
 `~/.helm/update.log`, which only records installs and failures, so it is quiet
 when Helm is current; `~/.helm/update-checked` holds the time of the last

@@ -4,6 +4,10 @@
 # second Dock icon.
 #
 #   ./scripts/install.sh
+#
+# HELM_INSTALL_STEP splits it for the updater: `build` builds and signs without
+# touching /Applications, so it can run while Helm is open; `install` copies the
+# already-built app in, which takes seconds. Unset runs both.
 
 set -euo pipefail
 
@@ -11,34 +15,43 @@ cd "$(dirname "$0")/.."
 ROOT="$PWD"
 APP_SRC="$ROOT/apps/desktop/release/mac-arm64/Helm.app"
 APP_DEST="/Applications/Helm.app"
+STEP="${HELM_INSTALL_STEP:-all}"
 
-echo "==> building"
-pnpm build
-pnpm --filter @helm/desktop exec electron-builder --mac --dir
+if [ "$STEP" != install ]; then
+  echo "==> building"
+  pnpm build
+  pnpm --filter @helm/desktop exec electron-builder --mac --dir
 
-[ -d "$APP_SRC" ] || { echo "error: $APP_SRC not produced by the build." >&2; exit 1; }
+  [ -d "$APP_SRC" ] || { echo "error: $APP_SRC not produced by the build." >&2; exit 1; }
 
-# ---------------------------------------------------------------- signing
-#
-# The Full Disk Access grant is keyed to the code signature. electron-builder
-# signs ad-hoc by default, producing a fresh signature every build, and macOS
-# silently drops the grant each time. Signing with a stable self-signed
-# identity keeps it. create-signing-identity.sh makes that identity without
-# admin rights or any manual Keychain work.
-IDENTITY="${HELM_SIGN_IDENTITY:-Helm Dev}"
-# Create it on first run so a fresh clone does not silently fall back to
-# ad-hoc signing and lose Full Disk Access on every rebuild.
-./scripts/create-signing-identity.sh
-# Test for the certificate, not `find-identity -p codesigning`: that omits
-# identities with no trust settings, which codesign accepts perfectly well.
-if security find-certificate -c "$IDENTITY" "$HOME/Library/Keychains/login.keychain-db" >/dev/null 2>&1; then
-  echo "==> signing with '$IDENTITY'"
-  ./scripts/sign-dev.sh
-else
-  echo "==> WARNING: could not create or find '$IDENTITY'."
-  echo "    Falling back to electron-builder's ad-hoc signature; Full Disk"
-  echo "    Access will be revoked on every rebuild."
+  # ---------------------------------------------------------------- signing
+  #
+  # The Full Disk Access grant is keyed to the code signature. electron-builder
+  # signs ad-hoc by default, producing a fresh signature every build, and macOS
+  # silently drops the grant each time. Signing with a stable self-signed
+  # identity keeps it. create-signing-identity.sh makes that identity without
+  # admin rights or any manual Keychain work.
+  IDENTITY="${HELM_SIGN_IDENTITY:-Helm Dev}"
+  # Create it on first run so a fresh clone does not silently fall back to
+  # ad-hoc signing and lose Full Disk Access on every rebuild.
+  ./scripts/create-signing-identity.sh
+  # Test for the certificate, not `find-identity -p codesigning`: that omits
+  # identities with no trust settings, which codesign accepts perfectly well.
+  if security find-certificate -c "$IDENTITY" "$HOME/Library/Keychains/login.keychain-db" >/dev/null 2>&1; then
+    echo "==> signing with '$IDENTITY'"
+    ./scripts/sign-dev.sh
+  else
+    echo "==> WARNING: could not create or find '$IDENTITY'."
+    echo "    Falling back to electron-builder's ad-hoc signature; Full Disk"
+    echo "    Access will be revoked on every rebuild."
+  fi
 fi
+
+if [ "$STEP" = build ]; then
+  echo "==> built and signed: $APP_SRC"
+  exit 0
+fi
+[ -d "$APP_SRC" ] || { echo "error: nothing built at $APP_SRC." >&2; exit 1; }
 
 # ------------------------------------------------------------- install
 echo "==> installing to $APP_DEST"
