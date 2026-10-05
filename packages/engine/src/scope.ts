@@ -2,6 +2,9 @@ import { realpath } from 'node:fs/promises';
 import { dirname, isAbsolute, resolve, sep } from 'node:path';
 import { homedir } from 'node:os';
 import type { Factor, ScopeVerdict } from '@helm/shared';
+import { classifyCommand, explainCommand } from './classify.js';
+
+export { classifyCommand, type CommandKind } from './classify.js';
 
 /**
  * Which argument of each tool names a path. Anything not listed falls through
@@ -22,31 +25,6 @@ const PATH_KEYS: Record<string, string[]> = {
 const GENERIC_KEYS = ['file_path', 'notebook_path', 'path', 'cwd', 'directory'];
 
 /**
- * Commands that report on the system and cannot change it. Treating `uptime`
- * exactly like `rm -rf` made every prompt uninformative — if everything is
- * flagged, the flag means nothing and you learn to click through it, which is
- * worse than not asking.
- */
-const READ_ONLY_COMMANDS = new Set([
-  // system state
-  'uptime', 'date', 'whoami', 'id', 'hostname', 'uname', 'sw_vers', 'w', 'who',
-  'ps', 'top', 'vm_stat', 'df', 'du', 'sysctl', 'pmset', 'iostat', 'nettop',
-  'system_profiler', 'ioreg', 'launchctl', 'sysdiagnose', 'memory_pressure',
-  'netstat', 'ifconfig', 'arp', 'route', 'scutil', 'networkQuality', 'lsof',
-  'defaults', 'stat', 'file', 'which', 'whence', 'type', 'command', 'env',
-  'printenv', 'locale', 'groups', 'hostinfo', 'nproc', 'sw_vers',
-  // reading and shaping text
-  'cat', 'head', 'tail', 'less', 'more', 'wc', 'sort', 'uniq', 'cut', 'tr',
-  'column', 'fold', 'nl', 'rev', 'jq', 'yq', 'echo', 'printf', 'basename',
-  'dirname', 'realpath', 'seq', 'true', 'false', 'awk', 'grep', 'egrep',
-  'fgrep', 'rg', 'ag', 'diff', 'cmp', 'md5', 'shasum', 'base64', 'xxd', 'od',
-  'ls', 'tree', 'pwd', 'readlink',
-  // searching the disk. `find` is only safe here because MUTATING_PATTERN
-  // catches -delete and -exec, which are the two ways it stops being a search.
-  'find', 'mdfind', 'mdls', 'locate', 'strings', 'otool', 'nm',
-]);
-
-/**
  * Paths that are not anybody's files. Writing to /dev/null is how a shell
  * discards output, and counting it as "outside your roots" made a plain search
  * ask for permission three times over — for the bit bucket.
@@ -58,72 +36,6 @@ const NULL_DEVICES = new Set([
 
 function isNullDevice(path: string): boolean {
   return NULL_DEVICES.has(path) || /^\/dev\/fd\/\d+$/.test(path);
-}
-
-/**
- * Tools where the subcommand decides. `git status` and `npm view` only report;
- * `git push` and `npm install` do not. Classifying the whole binary either way
- * would be wrong, and treating them all as mutating meant the most common
- * informational commands prompted every time.
- */
-const READ_ONLY_SUBCOMMANDS: Record<string, Set<string>> = {
-  git: new Set([
-    'status', 'log', 'diff', 'show', 'branch', 'remote', 'tag', 'blame',
-    'describe', 'shortlog', 'ls-files', 'ls-remote', 'rev-parse', 'rev-list',
-    'cat-file', 'reflog', 'stash', 'whatchanged', 'grep', 'count-objects',
-  ]),
-  npm: new Set(['view', 'ls', 'list', 'outdated', 'search', 'info', 'why', 'ping', 'root', 'prefix', 'bin']),
-  pnpm: new Set(['view', 'ls', 'list', 'outdated', 'why', 'root', 'bin', 'licenses']),
-  yarn: new Set(['info', 'list', 'outdated', 'why']),
-  brew: new Set(['list', 'info', 'search', 'outdated', 'deps', 'config', 'doctor', '--version']),
-  docker: new Set(['ps', 'images', 'logs', 'inspect', 'version', 'info', 'stats', 'top', 'port', 'history']),
-  kubectl: new Set(['get', 'describe', 'logs', 'top', 'explain', 'version', 'config', 'api-resources']),
-  systemctl: new Set(['status', 'list-units', 'is-active', 'is-enabled', 'show']),
-  cargo: new Set(['tree', 'search', 'metadata', 'version']),
-  go: new Set(['version', 'env', 'list']),
-  python3: new Set(['--version', '-V']),
-  node: new Set(['--version', '-v']),
-  pip: new Set(['list', 'show', 'freeze', 'search']),
-};
-
-/** Anything here can change state even when the head looks harmless. */
-const MUTATING_PATTERN =
-  /(^|\s)(>{1,2}(?!\s*\/dev\/null))|(^|\s)(rm|mv|cp|mkdir|rmdir|chmod|chown|ln|touch|tee|dd|kill|killall|pkill|shutdown|reboot|sudo|installer|defaults\s+write|launchctl\s+(load|unload|bootout))(\s|$)|(\s)-i(\s|$)|--in-place|-delete|-exec/;
-
-export type CommandKind = 'read-only' | 'mutating';
-
-/**
- * Deterministic read/write classification for a shell command. Every segment
- * of a pipeline must be a known read-only command, and nothing may redirect
- * output anywhere but /dev/null.
- */
-export function classifyCommand(command: string): CommandKind {
-  if (MUTATING_PATTERN.test(command)) return 'mutating';
-
-  const segments = command
-    .split(/\||;|&&|\|\||\n/)
-    .map((part) => part.trim())
-    .filter(Boolean);
-  if (segments.length === 0) return 'mutating';
-
-  for (const segment of segments) {
-    // Skip leading VAR=value assignments, as the shell does.
-    const tokens = segment.split(/\s+/).filter(Boolean);
-    let index = 0;
-    while (index < tokens.length - 1 && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[index] ?? '')) index++;
-    const bare = (tokens[index] ?? '').replace(/^.*\//, '');
-    if (READ_ONLY_COMMANDS.has(bare)) continue;
-
-    const subcommands = READ_ONLY_SUBCOMMANDS[bare];
-    if (subcommands) {
-      // The first token that is not a flag is the subcommand.
-      const sub = tokens.slice(index + 1).find((tok) => !tok.startsWith('-')) ?? tokens[index + 1] ?? '';
-      if (subcommands.has(sub)) continue;
-      return 'mutating';
-    }
-    return 'mutating';
-  }
-  return 'read-only';
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -354,15 +266,80 @@ export function autoApproves(
 ): { allow: boolean; factor?: Factor } {
   if (verdict.outOfScope) return { allow: false };
   const command = isRecord(input) && typeof input['command'] === 'string' ? input['command'] : undefined;
-  if (command !== undefined && classifyCommand(command) === 'mutating') {
+  const reason = command === undefined ? null : explainCommand(command);
+  if (reason !== null) {
     return {
       allow: false,
-      factor: {
-        rule: 'auto-mutating-command',
-        detail: `${toolName} can change state, so auto mode asks even inside your roots.`,
-        effect: 'out-of-scope',
-      },
+      factor: { rule: 'auto-mutating-command', detail: reason, effect: 'out-of-scope' },
     };
   }
   return { allow: true };
+}
+
+/** What each tool does, finishing the sentence "Helm wants to …". */
+const WANTS: Record<string, string> = {
+  Bash: 'run a command',
+  mcp__helm__run_in_terminal: 'run a command in your terminal',
+  Write: 'create or replace a file',
+  Edit: 'edit a file',
+  MultiEdit: 'edit a file',
+  NotebookEdit: 'edit a notebook',
+  Read: 'read a file',
+  Glob: 'look for files',
+  Grep: 'search inside files',
+  LS: 'list a folder',
+  WebFetch: 'open a web page',
+  WebSearch: 'search the web',
+  mcp__helm__remember: 'save a note to its memory',
+  mcp__helm__forget: 'remove a note from its memory',
+  mcp__helm__terminal_output: 'read your terminal',
+};
+
+function tidy(path: string): string {
+  const home = homedir();
+  return path === home ? '~' : path.startsWith(home + sep) ? '~' + path.slice(home.length) : path;
+}
+
+/**
+ * The words the permission prompt shows, and the key "allow for this session"
+ * remembers. A command is remembered exactly, never by its first word: allowing
+ * `rm build/old.log` must not allow `rm -rf ~` later. A file tool is remembered
+ * for the folders it touched.
+ */
+export function describeRequest(
+  toolName: string,
+  input: unknown,
+  verdict: ScopeVerdict,
+  mode: 'off' | 'prompt' | 'auto',
+): { summary: string; reason: string; sessionKey: string; sessionScope: string } {
+  const mcp = /^mcp__(.+?)__(.+)$/.exec(toolName);
+  const wants = WANTS[toolName] ?? (mcp ? `use ${mcp[2]} from ${mcp[1]}` : `use ${toolName}`);
+  const command = isRecord(input) && typeof input['command'] === 'string' ? input['command'] : undefined;
+
+  let reason: string;
+  const explained = command === undefined ? null : explainCommand(command);
+  if (explained) reason = explained;
+  else if (verdict.factors.some((f) => f.rule === 'outside-roots')) {
+    const outside = verdict.paths.find((p) => verdict.factors.some((f) => f.rule === 'outside-roots' && f.detail.startsWith(p)));
+    reason = `It reaches outside the folders Helm may use${outside ? `: ${tidy(outside)}` : ''}.`;
+  } else if (verdict.outOfScope) reason = "Helm can't tell which files this would touch.";
+  else if (mode === 'prompt') reason = 'Helm is set to ask before everything it does.';
+  else reason = 'Helm needs your OK for this.';
+
+  if (command !== undefined) {
+    return {
+      summary: `Helm wants to ${wants}`,
+      reason,
+      sessionKey: `${toolName}\u0000${command.trim().replace(/\s+/g, ' ')}`,
+      sessionScope: 'this exact command',
+    };
+  }
+  const folders = [...new Set(verdict.paths.map((p) => dirname(p)))].sort();
+  return {
+    summary: `Helm wants to ${wants}`,
+    reason,
+    sessionKey: [toolName, ...folders].join('\u0000'),
+    sessionScope:
+      folders.length === 0 ? 'this kind of request' : folders.length === 1 ? `this, in ${tidy(folders[0] as string)}` : 'this, in these folders',
+  };
 }

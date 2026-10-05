@@ -73,6 +73,11 @@ export async function buildHelmServer(
           'wait, do not re-run the command and do not poll terminal_output.',
         {
           command: z.string().min(1).max(4000),
+          description: z
+            .string()
+            .max(120)
+            .optional()
+            .describe("A few plain words on what the command does, shown to the user, e.g. 'Check the Mac's power settings'."),
           timeout_seconds: z.number().int().min(1).max(600).optional(),
         },
         async (args) => {

@@ -8,7 +8,7 @@ import type {
   SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk';
 import type { PermissionDecision, PermissionRequest, StreamEvent, TokenUsage } from '@helm/shared';
-import { autoApproves, evaluateScope } from './scope.js';
+import { autoApproves, describeRequest, evaluateScope } from './scope.js';
 import { buildHelmServer, readMemory, type ToolHost } from './tools.js';
 
 export interface EngineConfig {
@@ -97,6 +97,14 @@ const SYSTEM_APPEND = [
   'never use tables. Short **bold** labels, `code`, and "- " bullets render',
   'well; headings and nested lists do not. Lead with the answer. When you run',
   'commands to find something out, report what you learned, not the commands.',
+  '',
+  'Write for someone who is not technical. Use plain words an eighth grader',
+  'would understand, and short sentences. When a technical word cannot be',
+  'avoided (a file path, a command, a program) say what it is in a few words',
+  'the first time. Before you run a command that changes something, say in',
+  'one plain sentence what it will do. Lead with the answer, then at most a',
+  'short list. Do not end with offers or optional suggestions; mention a next',
+  'step only when the user has to do something.',
   '',
   'Act rather than offer. You have Bash, file tools and web search, and the',
   'user has already approved their use by running you — so when a question',
@@ -233,6 +241,9 @@ export async function createSession(
 
   const roots = [config.homeRoot, ...config.extraRoots];
 
+  /** What the user said yes to "for this session". Gone when the agent is. */
+  const allowedThisSession = new Set<string>();
+
   /**
    * Deterministic scope check, then the user. No model on this path.
    *
@@ -258,7 +269,12 @@ export async function createSession(
       if (auto.factor) factors = [...factors, auto.factor];
     }
 
-    return callbacks.requestPermission({
+    const words = describeRequest(toolName, input, verdict, config.permissionMode);
+    if (allowedThisSession.has(words.sessionKey)) {
+      return { id: randomUUID(), behavior: 'allow', persist: false, reason: 'Allowed earlier in this session.' };
+    }
+
+    const decision = await callbacks.requestPermission({
       id: randomUUID(),
       toolName,
       input,
@@ -266,7 +282,13 @@ export async function createSession(
       outOfScope: verdict.outOfScope,
       factors,
       roots,
+      summary: words.summary,
+      reason: words.reason,
+      sessionScope: words.sessionScope,
     });
+    // "Allow for this session" used to be ignored, so it asked again next time.
+    if (decision.behavior === 'allow' && decision.persist) allowedThisSession.add(words.sessionKey);
+    return decision;
   };
 
   const canUseTool = async (

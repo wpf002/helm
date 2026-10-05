@@ -44,6 +44,12 @@ export interface PermissionRequest {
   factors: Factor[];
   /** The roots the paths were checked against, for display. */
   roots: string[];
+  /** What Helm wants to do, in plain words: "Helm wants to run a command". */
+  summary: string;
+  /** Why it is asking, in one plain sentence. */
+  reason: string;
+  /** What "allow for this session" would cover: "this exact command". */
+  sessionScope: string;
 }
 
 export interface PermissionDecision {

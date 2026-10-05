@@ -311,6 +311,14 @@ unguarded agent is worse than no bar. Changing it disposes the running agent so
 the next turn is built under the new mode, rather than appearing to change
 nothing until the next launch.
 
+Whether a command "can change state" comes from `classify.ts`, which reads the
+command the way the shell does — quotes, pipes, loops, `$(…)`, heredocs,
+redirections — and lets a command through only if every program it would run
+is on its read-only list with no writing flags. The prompt says what Helm wants
+to do, what the command is for, and why it is asking in a plain sentence ("It
+runs `rm`, which deletes files."). "Allow for session" remembers that exact
+command, or that folder for a file tool, until Helm quits.
+
 With approvals off, a red dot sits beside the name. A maroon title bar said it
 once and then shouted it all day, which is how a warning stops being read. The
 dot stays: it is the only thing left between the agent and the disk.

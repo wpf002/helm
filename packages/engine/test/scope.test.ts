@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { autoApproves, classifyCommand, evaluateScope, isWithinRoots, resolveAffectedPaths } from '../src/scope.js';
+import { autoApproves, classifyCommand, describeRequest, evaluateScope, isWithinRoots, resolveAffectedPaths } from '../src/scope.js';
 
 /**
  * The containment tests. Every case here is a way a scope guard gets walked
@@ -240,5 +240,54 @@ describe('scope containment', () => {
       const result = await auto('Write', { file_path: join(outside, 'x.txt'), content: 'x' });
       expect(result.allow).toBe(false);
     });
+  });
+});
+
+describe('the permission prompt', () => {
+  const home = homedir();
+  const words = async (tool: string, input: unknown, mode: 'prompt' | 'auto' = 'auto') =>
+    describeRequest(tool, input, await evaluateScope(tool, input, home, [home]), mode);
+
+  it('says what Helm wants to do and why, in plain words', async () => {
+    const w = await words('Bash', { command: 'rm -rf build' });
+    expect(w.summary).toBe('Helm wants to run a command');
+    expect(w.reason).toBe('It runs `rm`, which deletes files.');
+    expect(w.sessionScope).toBe('this exact command');
+  });
+
+  it('names sudo as administrator access', async () => {
+    expect((await words('Bash', { command: 'sudo pmset -g therm' })).reason).toMatch(/administrator/);
+  });
+
+  it('remembers a command exactly, never by its first word', async () => {
+    const small = await words('Bash', { command: 'rm build/old.log' });
+    const big = await words('Bash', { command: 'rm -rf ~' });
+    const spaced = await words('Bash', { command: '  rm   build/old.log ' });
+    expect(small.sessionKey).not.toBe(big.sessionKey);
+    expect(small.sessionKey).toBe(spaced.sessionKey);
+  });
+
+  it('remembers a file tool for the folder it touched', async () => {
+    const a = await words('Write', { file_path: join(home, 'notes', 'a.md'), content: 'x' }, 'prompt');
+    const b = await words('Write', { file_path: join(home, 'notes', 'b.md'), content: 'x' }, 'prompt');
+    const c = await words('Write', { file_path: join(home, 'other', 'c.md'), content: 'x' }, 'prompt');
+    expect(a.sessionKey).toBe(b.sessionKey);
+    expect(a.sessionKey).not.toBe(c.sessionKey);
+    expect(a.sessionScope).toBe('this, in ~/notes');
+    expect(a.summary).toBe('Helm wants to create or replace a file');
+  });
+
+  it('explains a prompt-mode question about a harmless command', async () => {
+    expect((await words('Bash', { command: 'uptime' }, 'prompt')).reason).toBe('Helm is set to ask before everything it does.');
+  });
+
+  it('gives auto mode a readable reason instead of a rule name', async () => {
+    // A path inside home reaches the auto rule; `git push` names none and stops earlier.
+    const input = { command: 'rm ~/old-notes.txt' };
+    const result = autoApproves('Bash', input, await evaluateScope('Bash', input, home, [home]));
+    expect(result.factor?.detail).toBe('It runs `rm`, which deletes files.');
+    expect((await words('Bash', { command: 'git push origin main' })).reason).toBe(
+      'It runs `git push`, which sends your commits to GitHub.',
+    );
   });
 });
