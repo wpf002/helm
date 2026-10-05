@@ -14,6 +14,7 @@ STATE="$HOME/.helm"
 STAMP="$STATE/installed-sha"      # what /Applications/Helm.app was built from
 FAILED="$STATE/update-failed-sha" # last commit that failed the gate
 NOTIFIED="$STATE/update-notified-sha"
+CHECKED="$STATE/update-checked"    # when the last successful check ran
 APP_BIN="/Applications/Helm.app/Contents/MacOS/Helm"
 
 log() { echo "$(date '+%F %T') $*"; }
@@ -27,6 +28,9 @@ cd "$REPO" || { log "no checkout at $REPO"; exit 0; }
 # Same stall guard as Flint's deploy: give up on a dead connection in 20s.
 git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=20 fetch --quiet origin main \
   || { log "fetch failed"; exit 0; }
+# The log stays silent when there is nothing new, which looks like a stalled
+# job. This records that the check itself ran.
+date '+%F %T' > "$CHECKED"
 target=$(git rev-parse origin/main)
 short=${target[1,7]}
 

@@ -116,7 +116,9 @@ and then installed with `install.sh`, but only while Helm is closed: if it is
 open you get one notification, and the first check after you quit installs it.
 A commit that fails the tests is skipped until a newer one lands. `~/helm` is
 reset to GitHub on every update, so work in your own clone and push. Log:
-`~/.helm/update.log`.
+`~/.helm/update.log`, which only records installs and failures, so it is quiet
+when Helm is current; `~/.helm/update-checked` holds the time of the last
+successful check.
 
 ## macOS specifics
 
