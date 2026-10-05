@@ -3,68 +3,100 @@ import type { StreamEvent } from '@helm/shared';
 
 const ESC = String.fromCharCode(0x1b);
 const sgr = (code: string): string => `${ESC}[${code}m`;
-
-const RESET = sgr('0');
-/** The gutter is the only thing distinguishing the streams. Not layout. */
-const GUTTER_CHAR = '│ ';
-const GUTTER = sgr('38;5;68') + GUTTER_CHAR + RESET;
-const GUTTER_WIDTH = 2;
-const AGENT_TEXT = sgr('38;5;152');
-const THINKING = sgr('38;5;242') + sgr('3');
-const TOOL = sgr('38;5;108');
-const TOOL_ARG = sgr('38;5;66');
-const TOOL_FAIL = sgr('38;5;174');
-const ERROR = sgr('38;5;203');
-const META = sgr('38;5;242');
-const BOLD = sgr('1');
-const CODE = sgr('38;5;180');
-const BULLET = sgr('38;5;68');
-
-/** Longest a tool's argument may run before it is cut. Four lines of a shell
- *  script is enough to recognise it; the rest is noise you did not ask for. */
-const MAX_ARG_LINES = 4;
+/** 24-bit colour; xterm.js renders it exactly, so the palette is real hex. */
+const rgb = (hex: string): string =>
+  sgr(`38;2;${parseInt(hex.slice(1, 3), 16)};${parseInt(hex.slice(3, 5), 16)};${parseInt(hex.slice(5, 7), 16)}`);
 
 /**
- * Renders the small amount of markdown a terminal can honestly show. The agent
- * writes **bold** labels and `code`, and leaving those as literal asterisks is
- * the difference between a readout you can skim and one you have to decode.
- *
- * Deliberately narrow: bold, inline code, bullets and numbered items. Headings,
- * tables and nested lists have no good rendering in a fixed-width buffer, so
- * the system prompt asks for prose instead of pretending otherwise.
+ * The palette is Gemini CLI's default dark theme: purple for Helm's voice and
+ * inline code, blue for actions, cyan for commands, pale green and pink only
+ * for how an action ended, yellow for anything waiting on the user, and grey
+ * for detail. Foreground is a touch off white so it does not glare.
+ */
+const GEMINI = {
+  fg: '#eeeeee',
+  gray: '#afafaf',
+  border: '#878787',
+  purple: '#d7afff',
+  blue: '#87afff',
+  cyan: '#87d7d7',
+  green: '#d7ffd7',
+  yellow: '#ffffaf',
+  red: '#ff87af',
+};
+const FAINT = sgr('2');
+
+const PALETTE = {
+  gutter: FAINT + rgb(GEMINI.border),
+  voice: rgb(GEMINI.purple), // ✦, Helm speaking
+  text: rgb(GEMINI.fg),
+  thinking: rgb(GEMINI.gray) + sgr('3'),
+  action: rgb(GEMINI.blue), // a running tool
+  edge: FAINT + rgb(GEMINI.blue), // its box while it runs
+  closed: rgb(GEMINI.border), // its box once it is done
+  command: rgb(GEMINI.cyan),
+  detail: rgb(GEMINI.gray),
+  ok: rgb(GEMINI.green),
+  fail: rgb(GEMINI.red),
+  heading: rgb(GEMINI.blue) + sgr('1'),
+  prompt: rgb(GEMINI.blue) + sgr('1'),
+  code: rgb(GEMINI.purple),
+};
+
+const RESET = sgr('0');
+const BOLD = sgr('1');
+const NORMAL = sgr('22');
+
+/**
+ * The gutter is what tells Helm's lines from the shell's in the one buffer they
+ * share. Tool boxes draw their own left edge in the same column, so a command
+ * reads as part of Helm's turn without a second marker.
+ */
+const GUTTER_WIDTH = 2;
+
+/** How much of a command to show before cutting it. Enough to recognise it. */
+const MAX_COMMAND_LINES = 4;
+/** How much of a command's output to show. The agent quotes more if it matters. */
+const MAX_OUTPUT_LINES = 3;
+
+/**
+ * Renders the small amount of markdown a terminal can honestly show: bold,
+ * inline code, bullets, numbered items and single-line headings. Tables and
+ * nested lists have no good rendering in a fixed-width buffer, so the system
+ * prompt asks for prose instead of pretending otherwise.
  */
 function renderMarkdown(line: string, base: string): string {
   let out = line;
 
-  // Bullets first, while the marker is still at the start of the line.
   const bullet = /^(\s*)[-*]\s+/.exec(out);
   if (bullet) {
-    out = `${bullet[1] ?? ''}${BULLET}•${RESET}${base} ${out.slice(bullet[0].length)}`;
+    out = `${bullet[1] ?? ''}${PALETTE.detail}•${RESET}${base} ${out.slice(bullet[0].length)}`;
   } else {
     const numbered = /^(\s*)(\d+)\.\s+/.exec(out);
     if (numbered) {
-      out = `${numbered[1] ?? ''}${BULLET}${numbered[2]}.${RESET}${base} ${out.slice(numbered[0].length)}`;
+      out = `${numbered[1] ?? ''}${PALETTE.detail}${numbered[2]}.${RESET}${base} ${out.slice(numbered[0].length)}`;
     } else {
-      const heading = /^#{1,6}\s+(.*)$/.exec(out);
-      if (heading) out = `${BOLD}${heading[1] ?? ''}${sgr('22')}`;
+      const heading = /^(#{1,6})\s+(.*)$/.exec(out);
+      if (heading) {
+        const level = (heading[1] as string).length;
+        const style = level <= 2 ? PALETTE.heading : level === 3 ? BOLD : PALETTE.detail + sgr('3');
+        out = `${style}${heading[2] ?? ''}${RESET}${base}`;
+      }
     }
   }
 
-  out = out.replace(/\*\*([^*]+)\*\*/g, (_m, inner: string) => `${BOLD}${inner}${sgr('22')}${base}`);
+  out = out.replace(/\*\*([^*]+)\*\*/g, (_m, inner: string) => `${BOLD}${inner}${NORMAL}${base}`);
   out = out.replace(/(^|[^`])`([^`]+)`/g, (_m, before: string, inner: string) =>
-    `${before}${CODE}${inner}${RESET}${base}`,
+    `${before}${PALETTE.code}${inner}${RESET}${base}`,
   );
   return out;
 }
 
 /**
- * Breaks a line to fit the width, on word boundaries where there is one. A
- * terminal will wrap on its own, but it wraps into column zero — straight
- * through the gutter — so a long paragraph stops being visibly the agent's
- * halfway down. Wrapping here keeps every continuation line inside the gutter.
- *
- * Runs on plain text, before any colour is applied, because an escape sequence
- * occupies no columns and would make every width calculation wrong.
+ * Breaks a line to fit the width, on word boundaries where there is one. The
+ * terminal would wrap on its own, but into column zero, straight through the
+ * gutter. Runs on plain text, before colour: an escape sequence takes no
+ * columns and would throw every width off.
  */
 function wrapPlain(text: string, width: number): string[] {
   if (width < 8) return [text];
@@ -72,8 +104,7 @@ function wrapPlain(text: string, width: number): string[] {
   let rest = text;
   while (rest.length > width) {
     let cut = rest.lastIndexOf(' ', width);
-    // A single unbroken token — a path, a URL — has to be cut mid-word.
-    if (cut <= 0) cut = width;
+    if (cut <= 0) cut = width; // one unbroken token, a path or a URL
     lines.push(rest.slice(0, cut).trimEnd());
     rest = rest.slice(cut).trimStart();
   }
@@ -81,7 +112,6 @@ function wrapPlain(text: string, width: number): string[] {
   return lines;
 }
 
-/** Collapses a multi-line argument to one line so it can be wrapped sanely. */
 function oneLine(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
 }
@@ -91,90 +121,96 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Splits a tool call into a name and the one thing about it worth reading.
- * The engine used to fold these together into a single display string, which
- * meant a shell script arrived as one enormous "tool name".
+ * What a tool call is doing, as a title anyone can read, plus the command or
+ * path underneath it. The model writes a plain description for every shell
+ * command; the other tools get one built from their arguments.
  */
-function summarise(rawName: string, input: unknown): { head: string; detail: string } {
-  // `mcp__helm__terminal_output` is a wire name, not something to read. The
-  // server prefix says nothing the tool name does not.
-  const mcp = /^mcp__[^_]+(?:_[^_]+)*?__(.+)$/.exec(rawName);
-  const toolName = mcp?.[1] ?? rawName;
+function describe(rawName: string, input: unknown, shorten: (p: string) => string): { title: string; command: string } {
+  const name = /^mcp__.+?__(.+)$/.exec(rawName)?.[1] ?? rawName;
+  const str = (key: string): string => (isRecord(input) && typeof input[key] === 'string' ? (input[key] as string) : '');
+  const said = oneLine(str('description'));
 
-  if (!isRecord(input)) return { head: toolName, detail: '' };
-  const str = (key: string): string =>
-    typeof input[key] === 'string' ? (input[key] as string) : '';
-
-  switch (toolName) {
+  switch (name) {
     case 'Bash':
-      return { head: 'Bash', detail: oneLine(str('command')) };
+      return { title: said || 'Run a command', command: str('command') };
+    case 'run_in_terminal':
+      return { title: said || 'Run a command in your terminal', command: str('command') };
     case 'Read':
+      return { title: `Read ${shorten(str('file_path'))}`, command: '' };
     case 'Write':
+      return { title: `Write ${shorten(str('file_path'))}`, command: '' };
     case 'Edit':
-      return { head: toolName, detail: str('file_path') };
+    case 'MultiEdit':
+      return { title: `Edit ${shorten(str('file_path'))}`, command: '' };
     case 'Glob':
+      return { title: `Look for files matching ${str('pattern')}`, command: '' };
     case 'Grep':
-      return { head: toolName, detail: oneLine(`${str('pattern')} ${str('path')}`) };
+      return { title: `Search files for “${oneLine(str('pattern'))}”`, command: '' };
     case 'WebSearch':
-      return { head: 'Search', detail: oneLine(str('query')) };
+      return { title: `Search the web for “${oneLine(str('query'))}”`, command: '' };
     case 'WebFetch':
-      return { head: 'Fetch', detail: str('url') };
-    default: {
-      // Show the arguments, not the argument names — `lines` told you nothing
-      // that `lines=80` does not. Objects and arrays have no one-line form
-      // worth printing, so those fall back to the key alone.
-      const parts = Object.entries(input)
-        .slice(0, 3)
-        .map(([key, value]) =>
-          typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
-            ? `${key}=${String(value)}`
-            : key,
-        );
-      return { head: toolName, detail: oneLine(parts.join(' ')) };
-    }
+      return { title: `Open ${str('url')}`, command: '' };
+    case 'terminal_output':
+      return { title: 'Read what the terminal shows', command: '' };
+    case 'remember':
+      return { title: 'Save a note to memory', command: '' };
+    case 'forget':
+      return { title: 'Remove a note from memory', command: '' };
+    default:
+      return { title: said || `Use ${name}`, command: '' };
   }
+}
+
+function formatCost(costUsd: number): string {
+  if (costUsd < 0.01) return 'less than 1¢';
+  if (costUsd < 1) return `about ${Math.round(costUsd * 100)}¢`;
+  return `about $${costUsd.toFixed(2)}`;
+}
+
+function formatSeconds(ms: number): string {
+  const s = Math.max(1, Math.round(ms / 1000));
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
 }
 
 /**
  * Writes agent output into the same xterm buffer the shell writes to. The two
- * streams are told apart by colour and a gutter marker, never by layout — a
- * separate transcript pane is the thing this app exists not to have.
+ * streams are told apart by colour and the gutter, never by layout — a separate
+ * transcript pane is the thing this app exists not to have.
  *
- * Streaming text arrives token by token, so the gutter has to be injected at
- * every line break as the text flows, not prepended to a finished block.
+ * Text streams in token by token, so it is held until a line is complete and
+ * then rendered with the gutter: the unit of streaming is a line.
  */
 export class AgentWriter {
   private atLineStart = true;
   private streaming = false;
   /** Set from the session so paths can be shown as `~/…` rather than in full. */
   home = '';
-  /** True once anything has been written since the last blank separator, so
-   *  spacing is inserted between blocks and never at the top of a turn. */
+  /** True once anything has been written since the last blank separator. */
   private wroteSinceGap = false;
-  /**
-   * Markdown spans cross token boundaries, so text is held until the line is
-   * complete. Lines still appear as they are generated — the unit of streaming
-   * is a line rather than a token, which reads better anyway.
-   */
   private pending = '';
+  /** The next prose line starts a new answer block and gets the ✦. */
+  private freshBlock = true;
+  private turnStarted = 0;
+  /** Titles of tools that have started, for results that arrive out of order. */
+  private readonly titles = new Map<string, string>();
+  /** The tool whose box is open and still the last thing on screen. */
+  private openBox: string | null = null;
+  /** True while rows belong to a tool box, so its edge is drawn in the box colour. */
+  private inBox = false;
 
   constructor(private readonly term: Terminal) {}
 
-  /**
-   * Drops buffered state after the buffer itself has been wiped. Without this
-   * a half-written line would be flushed into the fresh screen, gutter and
-   * all, as if it belonged to whatever comes next.
-   */
+  /** Drops buffered state after the buffer itself has been wiped. */
   reset(): void {
     this.pending = '';
     this.atLineStart = true;
     this.wroteSinceGap = false;
+    this.freshBlock = true;
+    this.openBox = null;
+    this.titles.clear();
   }
 
-  /**
-   * Ends any open gutter line so something else can write a clean row. Used
-   * when the terminal needs to say something of its own mid-turn.
-   */
+  /** Ends any open gutter line so something else can write a clean row. */
   endLine(): void {
     this.closeLine();
   }
@@ -188,56 +224,53 @@ export class AgentWriter {
     return Math.max(20, this.term.cols - GUTTER_WIDTH - 1);
   }
 
-  private shorten(path: string): string {
-    return this.home && path.startsWith(this.home) ? '~' + path.slice(this.home.length) : path;
-  }
+  private shorten = (path: string): string =>
+    this.home && path.startsWith(this.home) ? '~' + path.slice(this.home.length) : path;
 
   private raw(text: string): void {
     this.term.write(text);
   }
 
   /**
-   * One physical line, gutter-marked. Never wrapped further.
-   *
-   * The shell shares this buffer and may have left the cursor mid-row — a
-   * half-typed command sitting there while a turn finishes underneath it. A
-   * gutter row appended to that row reads as one sentence made of two, so the
-   * row is started properly first. The terminal is asked where the cursor is,
-   * because nothing else here can know.
+   * One physical row, marked on the left. The shell shares this buffer and may
+   * have left the cursor mid-row, so the row is started properly first; the
+   * terminal is asked where the cursor is, because nothing else here knows.
    */
-  private row(body: string): void {
+  private row(body: string, edge = '│'): void {
     const lead = this.cursorColumn() > 0 ? '\r\n' : '';
-    this.raw(lead + GUTTER + body + RESET + '\r\n');
+    const colour = edge === '╰' ? PALETTE.closed : edge === '│' && !this.inBox ? PALETTE.gutter : PALETTE.edge;
+    this.raw(lead + colour + edge + RESET + ' ' + body + RESET + '\r\n');
     this.atLineStart = true;
     this.wroteSinceGap = true;
   }
 
-  /** An empty gutter line. Blocks need air; two of them in a row do not. */
+  /** An empty gutter row between blocks; never two in a row. */
   private gap(): void {
     if (!this.wroteSinceGap) return;
     const lead = this.cursorColumn() > 0 ? '\r\n' : '';
-    this.raw(lead + sgr('38;5;68') + GUTTER_CHAR.trimEnd() + RESET + '\r\n');
+    this.raw(lead + PALETTE.gutter + '│' + RESET + '\r\n');
     this.wroteSinceGap = false;
     this.atLineStart = true;
   }
 
-  /** Emits one logical line, wrapped to width and markdown-rendered. */
-  private emitLine(line: string, colour: string, indent = ''): void {
+  /** One logical line of prose, wrapped, rendered, and marked ✦ if it opens a block. */
+  private emitLine(line: string, colour: string): void {
+    const glyph = colour === PALETTE.text && this.freshBlock;
+    if (colour === PALETTE.text) this.freshBlock = false;
     const hanging = /^\s*([-*]|\d+\.)\s/.test(line) ? '  ' : '';
-    const segments = wrapPlain(line, this.width - indent.length);
+    const segments = wrapPlain(line, this.width - 2);
     segments.forEach((segment, i) => {
-      const lead = indent + (i === 0 ? '' : hanging);
+      const lead = i === 0 ? (glyph ? `${PALETTE.voice}✦${RESET}${colour} ` : '  ') : `  ${hanging}`;
       this.row(colour + lead + renderMarkdown(segment, colour));
     });
   }
 
-  /** Buffers until a line is complete, then renders it. */
   private gutterWrite(text: string, colour: string): void {
+    this.closeBox();
     this.pending += text.replace(/\r/g, '');
     let index = this.pending.indexOf('\n');
     while (index !== -1) {
       const line = this.pending.slice(0, index);
-      // A blank line in the agent's prose is a paragraph break, not a row.
       if (line.trim() === '') this.gap();
       else this.emitLine(line, colour);
       this.pending = this.pending.slice(index + 1);
@@ -245,7 +278,6 @@ export class AgentWriter {
     }
   }
 
-  /** Flushes a trailing partial line, e.g. when a turn ends mid-sentence. */
   private flushPending(colour: string): void {
     if (this.pending.length > 0) {
       this.emitLine(this.pending, colour);
@@ -254,25 +286,18 @@ export class AgentWriter {
   }
 
   /**
-   * Ends the current line so shell output never inherits the gutter.
-   *
-   * The cursor column comes from the terminal, not from this class's own
-   * bookkeeping. Both the shell and the agent write into this buffer, so
-   * `atLineStart` only ever knew where *its* last write ended — and when the
-   * shell had left the cursor mid-row, the gutter line was appended to that
-   * row instead of starting a new one, printing the submitted prompt twice on
-   * one line. Intermittent, because it depended on whether zsh's line-erase
-   * arrived before or after this ran.
+   * Ends the current line so shell output never inherits the gutter. The cursor
+   * column comes from the terminal, because the shell writes here too and only
+   * the terminal knows where the cursor really is.
    */
   private closeLine(): void {
-    this.flushPending(AGENT_TEXT);
+    this.flushPending(PALETTE.text);
     if (!this.atLineStart || this.cursorColumn() > 0) {
       this.raw(RESET + '\r\n');
       this.atLineStart = true;
     }
   }
 
-  /** Where the terminal's cursor actually is, or 0 if it cannot be read. */
   private cursorColumn(): number {
     try {
       return this.term.buffer.active.cursorX;
@@ -281,96 +306,123 @@ export class AgentWriter {
     }
   }
 
-  /**
-   * Marks the start of a turn. The compose line has already echoed the prompt
-   * as it was typed, so re-rendering it here would print it twice.
-   */
+  /** A box left open by a tool that never reported back gets a quiet bottom edge. */
+  private closeBox(): void {
+    if (this.openBox === null) return;
+    this.openBox = null;
+    this.row(`${PALETTE.detail}…`, '╰');
+    this.inBox = false;
+  }
+
   beginTurn(): void {
     this.closeLine();
     this.streaming = true;
     this.wroteSinceGap = false;
+    this.freshBlock = true;
+    this.turnStarted = Date.now();
   }
 
-  /**
-   * Renders the submitted prompt. Used when the shell's line editor owned the
-   * text and cleared it on submit, so the scrollback would otherwise lose it.
-   */
+  /** Re-renders the submitted prompt when the shell's line editor cleared it. */
   echoPrompt(text: string): void {
     this.closeLine();
-    this.emitLine(text, sgr('38;5;110') + sgr('1'));
+    const lines = wrapPlain(text, this.width - 2);
+    lines.forEach((line, i) => this.row(`${PALETTE.prompt}${i === 0 ? '›' : ' '} ${line}`));
     this.streaming = true;
     this.wroteSinceGap = false;
+    this.freshBlock = true;
+    this.turnStarted = Date.now();
   }
 
   handle(event: StreamEvent): void {
     switch (event.kind) {
       case 'text':
         this.streaming = true;
-        this.gutterWrite(event.text, AGENT_TEXT);
+        this.gutterWrite(event.text, PALETTE.text);
         break;
 
       case 'thinking':
         this.streaming = true;
-        this.gutterWrite(event.text, THINKING);
+        this.gutterWrite(event.text, PALETTE.thinking);
         break;
 
       case 'tool_start': {
         this.closeLine();
+        this.closeBox();
         this.gap();
-        const { head, detail } = summarise(event.toolName, event.input);
-        const shown = this.shorten(detail);
-        const inline = `● ${head}  ${shown}`;
-        if (!shown) {
-          this.row(`${TOOL}● ${head}`);
-        } else if (inline.length <= this.width) {
-          this.row(`${TOOL}● ${head}  ${TOOL_ARG}${shown}`);
-        } else {
-          // Too long for one line: name first, argument indented under it, so
-          // the eye finds the tool without reading the whole command.
-          this.row(`${TOOL}● ${head}`);
-          const lines = wrapPlain(shown, this.width - 2);
-          for (const line of lines.slice(0, MAX_ARG_LINES)) this.row(`${TOOL_ARG}  ${line}`);
-          if (lines.length > MAX_ARG_LINES) this.row(`${META}  … ${lines.length - MAX_ARG_LINES} more lines`);
+        const { title, command } = describe(event.toolName, event.input, this.shorten);
+        this.titles.set(event.toolId, title);
+        this.inBox = true;
+        const titleLines = wrapPlain(title, this.width - 4);
+        titleLines.forEach((line, i) =>
+          this.row(`${PALETTE.action}${i === 0 ? '⊷ ' : '  '}${BOLD}${line}${NORMAL}`, i === 0 ? '╭' : '│'),
+        );
+        if (command) {
+          const lines = command
+            .split('\n')
+            .flatMap((l) => wrapPlain(this.shorten(l), this.width - 6))
+            .filter((l) => l.trim().length > 0);
+          lines.slice(0, MAX_COMMAND_LINES).forEach((line, i) =>
+            this.row(`  ${PALETTE.detail}${i === 0 ? '$' : ' '} ${PALETTE.command}${line}`, '│'),
+          );
+          if (lines.length > MAX_COMMAND_LINES) {
+            this.row(`  ${PALETTE.detail}  … ${lines.length - MAX_COMMAND_LINES} more lines`, '│');
+          }
         }
+        this.openBox = event.toolId;
+        this.freshBlock = true;
         break;
       }
 
       case 'tool_result': {
-        // A count plus the first line. The whole output belongs in the buffer
-        // only when the agent decides to quote it back.
-        const lines = event.output.split('\n').filter((l) => l.trim().length > 0);
-        const first = lines[0] ?? '';
-        const room = this.width - 12;
-        const trimmed = first.length > room ? first.slice(0, room - 1) + '…' : first;
-        const count = lines.length > 1 ? `${lines.length} lines · ` : '';
         this.closeLine();
+        const lines = event.output.split('\n').map((l) => l.trimEnd()).filter((l) => l.trim().length > 0);
+        const room = this.width - 6;
+        const clip = (l: string): string => (l.length > room ? l.slice(0, room - 1) + '…' : l);
+
+        // Its own box is still the last thing drawn: fill it in and close it.
+        // Otherwise (tools ran side by side) name the tool on the closing line.
+        const inBox = this.openBox === event.toolId;
+        if (!inBox) this.closeBox();
+        const title = this.titles.get(event.toolId) ?? 'Command';
+        this.titles.delete(event.toolId);
+        this.openBox = null;
+
         if (event.ok) {
-          this.row(`${META}  └ ${count}${trimmed || 'no output'}`);
+          if (inBox) {
+            for (const line of lines.slice(0, MAX_OUTPUT_LINES)) this.row(`  ${PALETTE.detail}${clip(line)}`, '│');
+            if (lines.length > MAX_OUTPUT_LINES) this.row(`  ${PALETTE.detail}… and ${lines.length - MAX_OUTPUT_LINES} more lines`, '│');
+          }
+          this.row(`${PALETTE.ok}✓ ${inBox ? 'Done' : `Done: ${title}`}${lines.length === 0 ? `${PALETTE.detail} · no output` : ''}`, '╰');
         } else {
-          this.row(`${TOOL_FAIL}  └ failed  ${trimmed}`);
+          const why = lines.find((l) => /error|fail|denied|not found|no such/i.test(l)) ?? lines[0] ?? '';
+          this.row(`${PALETTE.fail}${BOLD}✕${NORMAL} ${inBox ? 'Failed' : `Failed: ${title}`}${why ? `${PALETTE.detail} · ${clip(why)}` : ''}`, '╰');
         }
+        this.inBox = false;
         this.gap();
+        this.freshBlock = true;
         break;
       }
 
       case 'error':
         this.closeLine();
+        this.closeBox();
         this.gap();
-        this.emitLine(event.message, ERROR);
+        wrapPlain(event.message, this.width - 2).forEach((line, i) =>
+          this.row(`${PALETTE.fail}${i === 0 ? '✕' : ' '} ${line}`),
+        );
+        this.freshBlock = true;
         break;
 
       case 'turn_end': {
         this.closeLine();
+        this.closeBox();
         this.streaming = false;
-        if (event.usage) {
-          const { input, output, cacheRead, cacheWrite, costUsd } = event.usage;
-          const cost = typeof costUsd === 'number' ? ` · $${costUsd.toFixed(4)}` : '';
-          this.gap();
-          this.row(
-            `${META}${input + cacheRead + cacheWrite} in / ${output} out` +
-              `${cacheRead ? ` (${cacheRead} cached)` : ''}${cost}`,
-          );
-        }
+        const took = this.turnStarted > 0 ? `Done in ${formatSeconds(Date.now() - this.turnStarted)}` : 'Done';
+        const cost = typeof event.usage?.costUsd === 'number' ? ` · ${formatCost(event.usage.costUsd)}` : '';
+        this.gap();
+        this.row(`${PALETTE.detail}${took}${cost}`);
+        this.turnStarted = 0;
+        this.freshBlock = true;
         break;
       }
 

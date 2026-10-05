@@ -54,6 +54,9 @@ export default function App(): JSX.Element {
   const [, forceRender] = useState(0);
   const bump = useCallback(() => forceRender((n) => n + 1), []);
   const [pendingPermission, setPendingPermission] = useState<PermissionRequest | null>(null);
+  /** Which choice in the permission prompt is highlighted: 0 yes, 1 yes for the session, 2 no. */
+  const [permissionChoice, setPermissionChoice] = useState(0);
+  const permissionChoiceRef = useRef(0);
   const [permissionMode, setPermissionMode] = useState<'off' | 'prompt' | 'auto'>('prompt');
   const [busy, setBusy] = useState(false);
   /** A command the agent started is waiting on a keystroke from the user. */
@@ -190,10 +193,23 @@ export default function App(): JSX.Element {
 
       const onInput = s.term.onData((data) => {
         if (permissionRef.current) {
+          // Letters, or the numbers shown beside each choice. Esc means no,
+          // but only on its own: arrow keys also start with an escape.
           const key = data[0];
-          if (key === 'y') decideRef.current?.('allow', false);
-          else if (key === 'a') decideRef.current?.('allow', true);
-          else if (key === 'n' || key === CTRL_C) decideRef.current?.('deny', false);
+          const move = (step: number): void => {
+            permissionChoiceRef.current = (permissionChoiceRef.current + step + 3) % 3;
+            setPermissionChoice(permissionChoiceRef.current);
+          };
+          if (data === `${ESC}[A` || key === 'k') return move(-1);
+          if (data === `${ESC}[B` || key === 'j') return move(1);
+          if (key === '\r') {
+            const choice = permissionChoiceRef.current;
+            decideRef.current?.(choice === 2 ? 'deny' : 'allow', choice === 1);
+            return;
+          }
+          if (key === 'y' || key === '1') decideRef.current?.('allow', false);
+          else if (key === 'a' || key === '2') decideRef.current?.('allow', true);
+          else if (key === 'n' || key === '3' || key === CTRL_C || data === ESC) decideRef.current?.('deny', false);
           return;
         }
 
@@ -385,8 +401,11 @@ export default function App(): JSX.Element {
       window.helm.agent.resolvePermission({ id: request.id, behavior, persist });
       const s = byId(agentOwnerRef.current ?? '') ?? active();
       s?.term.write(
-        `${ESC}[38;5;68m│ ${ESC}[38;5;242m${behavior}${persist ? ' (session)' : ''}` +
-          ` ${request.toolName}${request.outOfScope ? ' [out of scope]' : ''}${ESC}[0m\r\n`,
+        `${ESC}[38;5;68m│ ${ESC}[38;5;242m` +
+          (behavior === 'allow'
+            ? `${ESC}[38;5;114m✓${ESC}[38;5;242m You said yes${persist ? `, and not to ask again for ${request.sessionScope}` : ''}`
+            : `${ESC}[38;5;203m✗${ESC}[38;5;242m You said no`) +
+          `${ESC}[0m\r\n`,
       );
       s?.term.focus();
     };
@@ -394,11 +413,12 @@ export default function App(): JSX.Element {
 
     const offPermission = window.helm.agent.onPermissionRequest((request) => {
       permissionRef.current = request;
+      permissionChoiceRef.current = 0;
+      setPermissionChoice(0);
       setPendingPermission(request);
       const s = byId(agentOwnerRef.current ?? '') ?? active();
       s?.term.write(
-        `\r\n${ESC}[38;5;68m│ ${ESC}[38;5;215mpermission: ${request.toolName}` +
-          `${request.outOfScope ? ' — outside your roots' : ''}${ESC}[0m\r\n`,
+        `\r\n${ESC}[38;5;68m│ ${ESC}[38;5;215m? Waiting for your OK: ${request.summary.replace(/^Helm wants to /, '')}${ESC}[0m\r\n`,
       );
     });
 
@@ -686,6 +706,7 @@ export default function App(): JSX.Element {
       {pendingPermission && (
         <PermissionOverlay
           request={pendingPermission}
+          selected={permissionChoice}
           onDecide={(behavior, persist) => decideRef.current?.(behavior, persist)}
         />
       )}

@@ -1,95 +1,137 @@
-// The approval UI. Shows what the call would actually touch — resolved,
-// symlink-followed absolute paths — instead of the raw JSON the SDK hands over.
-// This is the one thing Helm has that the official app does not, so it has to
-// answer "what does this reach, and is it outside my roots" at a glance.
+// The approval UI. It has to be readable by anyone, at a glance: what Helm
+// wants to do, the exact command or file, and why it is asking — in plain
+// words. The technical evidence (resolved paths, the rules that fired, the raw
+// input) is still here, one click down, for whoever wants to check the work.
 
 import type { PermissionRequest } from '@helm/shared';
 
 interface Props {
   request: PermissionRequest;
+  /** The highlighted choice, moved with the arrow keys: 0 yes, 1 yes for the session, 2 no. */
+  selected: number;
   onDecide: (behavior: 'allow' | 'deny', persist: boolean) => void;
+}
+
+/** Plain text with `code` spans, as the engine writes its reasons. */
+function inline(text: string): (string | JSX.Element)[] {
+  return text.split(/`([^`]+)`/).map((part, i) => (i % 2 === 1 ? <code key={i}>{part}</code> : part));
 }
 
 function shorten(path: string, home: string): string {
   return home && path.startsWith(home) ? '~' + path.slice(home.length) : path;
 }
 
-export function PermissionOverlay({ request, onDecide }: Props): JSX.Element {
+function field(input: unknown, key: string): string | null {
+  return typeof input === 'object' && input !== null && typeof (input as Record<string, unknown>)[key] === 'string'
+    ? ((input as Record<string, unknown>)[key] as string)
+    : null;
+}
+
+export function PermissionOverlay({ request, selected, onDecide }: Props): JSX.Element {
   const home = request.roots[0] ?? '';
   const { outOfScope, affectedPaths, factors } = request;
-
-  // A call whose paths could not be resolved is not the same as one that
-  // touches nothing, and must not read as safe.
-  const unresolved = affectedPaths.length === 0 && outOfScope;
+  const command = field(request.input, 'command');
+  // The model says what each command is for; that is the line a person reads first.
+  const purpose = field(request.input, 'description');
+  // Asking because the command can change things is normal; reaching outside
+  // the allowed folders, or using administrator rights, gets the warning look.
+  const risky = outOfScope || /administrator/.test(request.reason);
 
   return (
-    <div className="perm">
-      <div className={`perm__card${outOfScope ? ' perm__card--warn' : ''}`}>
+    <div className="perm" role="dialog" aria-modal="true" aria-labelledby="perm-title">
+      <div className={`perm__card${risky ? ' perm__card--warn' : ''}`}>
         <header className="perm__head">
-          <span className="perm__tool">{request.toolName}</span>
-          {outOfScope ? (
-            <span className="perm__flag perm__flag--out">
-              {unresolved ? 'paths unresolved' : 'outside your roots'}
-            </span>
-          ) : (
-            <span className="perm__flag perm__flag--in">within your roots</span>
-          )}
+          <span className="perm__mark" aria-hidden="true">
+            ?
+          </span>
+          <div>
+            <h3 id="perm-title" className="perm__title">
+              {request.summary}
+            </h3>
+            {purpose && (
+              <p className="perm__purpose">
+                <span className="perm__lead">To:</span> {purpose}
+              </p>
+            )}
+            <p className="perm__reason">
+              <span className="perm__lead">Why it&rsquo;s asking:</span> {inline(request.reason)}
+            </p>
+          </div>
         </header>
 
-        <section className="perm__section">
-          <h4 className="perm__label">
-            {affectedPaths.length > 0 ? 'Resolved paths' : 'No paths resolved'}
-          </h4>
-          {affectedPaths.length > 0 ? (
-            <ul className="perm__paths">
-              {affectedPaths.map((path) => (
-                <li key={path} className="perm__path">
-                  {shorten(path, home)}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="perm__none">
-              {unresolved
-                ? 'This call could not be reduced to specific paths. It may reach anywhere.'
-                : 'This call declares no filesystem paths.'}
-            </p>
+        {command !== null ? (
+          <pre className="perm__command">
+            <span className="perm__prompt" aria-hidden="true">
+              ${' '}
+            </span>
+            {command}
+          </pre>
+        ) : affectedPaths.length > 0 ? (
+          <ul className="perm__paths">
+            {affectedPaths.map((path) => (
+              <li key={path} className="perm__path">
+                {shorten(path, home)}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+
+        <div className="perm__choices">
+          {[
+            { label: 'Yes, run it', key: 'y', decide: () => onDecide('allow', false) },
+            {
+              label: `Yes, and don’t ask again for ${request.sessionScope} until you quit Helm`,
+              key: 'a',
+              decide: () => onDecide('allow', true),
+            },
+            { label: 'No', key: 'n', decide: () => onDecide('deny', false) },
+          ].map((choice, index) => (
+            <button
+              key={choice.key}
+              className={`perm__choice${index === selected ? ' perm__choice--selected' : ''}`}
+              onClick={choice.decide}
+            >
+              <span className="perm__dot" aria-hidden="true">
+                {index === selected ? '●' : ''}
+              </span>
+              <span className="perm__num">{index + 1}.</span>
+              <span className="perm__text">{choice.label}</span>
+              <kbd>{choice.key}</kbd>
+            </button>
+          ))}
+          <p className="perm__keys">↑ ↓ to move · Enter to choose · Esc for no</p>
+        </div>
+
+        <details className="perm__details">
+          <summary>Details</summary>
+          {affectedPaths.length > 0 && command !== null && (
+            <>
+              <h4 className="perm__label">Files it names</h4>
+              <ul className="perm__paths perm__paths--quiet">
+                {affectedPaths.map((path) => (
+                  <li key={path} className="perm__path">
+                    {shorten(path, home)}
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
-        </section>
-
-        {factors.length > 0 && (
-          <section className="perm__section">
-            <h4 className="perm__label">Why</h4>
-            <ul className="perm__factors">
-              {factors.map((factor, index) => (
-                <li key={`${factor.rule}-${index}`} className={`perm__factor perm__factor--${factor.effect}`}>
-                  <code className="perm__rule">{factor.rule}</code>
-                  <span className="perm__detail">{factor.detail}</span>
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
-
-        <details className="perm__raw">
-          <summary>Raw input</summary>
-          <pre>{JSON.stringify(request.input, null, 2)}</pre>
+          {factors.length > 0 && (
+            <>
+              <h4 className="perm__label">How Helm decided</h4>
+              <ul className="perm__factors">
+                {factors.map((factor, index) => (
+                  <li key={`${factor.rule}-${index}`} className={`perm__factor perm__factor--${factor.effect}`}>
+                    <code className="perm__rule">{factor.rule}</code>
+                    <span className="perm__detail">{inline(factor.detail)}</span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          <h4 className="perm__label">Exactly what was sent ({request.toolName})</h4>
+          <pre className="perm__raw">{JSON.stringify(request.input, null, 2)}</pre>
         </details>
-
-        <footer className="perm__actions">
-          <button className="perm__btn perm__btn--deny" onClick={() => onDecide('deny', false)}>
-            Deny <kbd>n</kbd>
-          </button>
-          <button className="perm__btn" onClick={() => onDecide('allow', true)}>
-            Allow for session <kbd>a</kbd>
-          </button>
-          <button
-            className={`perm__btn perm__btn--primary${outOfScope ? ' perm__btn--risky' : ''}`}
-            onClick={() => onDecide('allow', false)}
-          >
-            Allow once <kbd>y</kbd>
-          </button>
-        </footer>
       </div>
     </div>
   );
