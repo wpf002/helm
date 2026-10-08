@@ -121,6 +121,22 @@ reset to GitHub on every update, so work in your own clone and push. Log:
 when Helm is current; `~/.helm/update-checked` holds the time of the last
 successful check.
 
+Other Macs get the same build rather than building their own:
+
+```bash
+./scripts/setup-mirror.sh willfoti@100.96.103.37
+```
+
+Run on the building machine. The target needs no node, no checkout and no
+signing identity — the Mac Studio has none of them. Each build is shipped over
+SSH as soon as it passes the gate, and `com.helm.apply` on the target installs
+it the same way: immediately if Helm is closed, seconds after a quit if it is
+open. Shipping instead of building keeps one signature on every machine, so a
+Full Disk Access grant survives updates; a build signed on the target would carry
+a different certificate and silently drop it. A target that is asleep or off
+the tailnet is retried every tick. The building machine has to be on for its
+mirrors to update.
+
 ## macOS specifics
 
 Full Disk Access is required or reads into Documents, Desktop, and Downloads
