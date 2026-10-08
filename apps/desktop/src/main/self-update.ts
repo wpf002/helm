@@ -66,11 +66,18 @@ const read = (path: string): string | null => {
   }
 };
 
+/** Local time, matching `date '+%F %T'` in the install step that shares this log. */
+function stamp(): string {
+  const d = new Date();
+  const p = (n: number): string => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
 function log(message: string): void {
   lastMessage = message;
   try {
     mkdirSync(STATE, { recursive: true });
-    appendFileSync(LOG, `${new Date().toISOString().replace('T', ' ').slice(0, 19)} ${message}\n`);
+    appendFileSync(LOG, `${stamp()} ${message}\n`);
   } catch {
     // Logging must never be the thing that breaks updating.
   }
