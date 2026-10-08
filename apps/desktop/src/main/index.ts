@@ -14,6 +14,8 @@ import {
 import { join } from 'node:path';
 import { loadEnv } from './env.js';
 import { disposeAgent, killAllSessions, registerIpc } from './ipc.js';
+import { loadConfig } from './config.js';
+import { installStagedOnQuit, startSelfUpdate, stopSelfUpdate } from './self-update.js';
 
 /** Matches the renderer's --helm-bg so there is no white flash on show. */
 const BACKGROUND = '#0d1017';
@@ -236,6 +238,8 @@ app.whenReady().then(() => {
   // Once for the app, before any window exists.
   registerIpc(() => mainWindow, env);
   createWindow();
+  // After the window, never before it: updating must not delay the terminal.
+  if (loadConfig().checkForUpdates) startSelfUpdate();
 
   if (!globalShortcut.register(HOTKEY, toggleWindow)) {
     // Another app owns it. Say so rather than failing silently — the menu item
@@ -267,4 +271,7 @@ app.on('before-quit', () => {
 
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
+  stopSelfUpdate();
+  // A staged update goes in once this process is gone.
+  installStagedOnQuit();
 });

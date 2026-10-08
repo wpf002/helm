@@ -106,20 +106,27 @@ pnpm sign:dev
 
 ### Keep it current
 
-```bash
-./scripts/setup-auto-update.sh
-```
+There is nothing to set up. Running `./scripts/install.sh` from your clone makes
+that clone the one Helm follows, and from then on Helm keeps itself on GitHub's
+`main`:
 
-Clones a deploy-only copy to `~/helm` and loads `com.helm.update`, which checks
-`origin/main` every 5 minutes. A new commit is tested (`pnpm test`, `typecheck`),
-built and signed right away, even with Helm open (`HELM_INSTALL_STEP=build`).
-Copying it into /Applications waits for Helm to close: you get one notification,
-the updater watches for the quit, and the new version is in place a few seconds
-later. A commit that fails the tests is skipped until a newer one lands. `~/helm` is
-reset to GitHub on every update, so work in your own clone and push. Log:
-`~/.helm/update.log`, which only records installs and failures, so it is quiet
-when Helm is current; `~/.helm/update-checked` holds the time of the last
-successful check.
+- every 5 minutes it fetches and fast-forwards your clone — only when it is on
+  `main` with no uncommitted changes to tracked files and no unpushed commits, so
+  it can never touch work in progress (it logs why when it waits)
+- it runs `pnpm test` and `typecheck`, then builds and signs, all while Helm is open
+- the new build installs a few seconds after you quit Helm; it never quits Helm
+  for you
+
+A commit that fails the tests is skipped until a newer one lands. Log:
+`~/.helm/update.log`. Turn it off with *Update automatically* in Preferences.
+
+It runs inside Helm rather than as a background job because macOS will not let
+a launchd job read `~/Documents`, where the clone lives — tested, it fails with
+`Operation not permitted`. Helm can.
+
+A Mac whose clone is outside `~/Documents` can use the launchd job instead,
+`./scripts/setup-auto-update.sh`, which is what the Mac Studio runs. Helm's own
+updater stands down wherever that job is installed, so the two never race.
 
 ## macOS specifics
 

@@ -178,8 +178,8 @@ export function Preferences({
         <section className="pref__section">
           <h4 className="pref__title">Updates</h4>
           <Toggle
-            label="Check on launch"
-            hint="Compares your build against origin/main. Never downloads or installs."
+            label="Update automatically"
+            hint="Keeps Helm on GitHub's main, through the clone you installed from. Installs when you quit Helm."
             checked={config.checkForUpdates}
             onChange={(checkForUpdates) => onChange({ checkForUpdates })}
           />

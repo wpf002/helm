@@ -29,6 +29,7 @@ import { loadConfig, saveConfig, type HelmConfig } from './config.js';
 import { estimateCost, readUsage, recordUsage } from './usage.js';
 import { hookStatus, installHook } from './shell-hook.js';
 import { checkForUpdates } from './update.js';
+import { checkNow, selfUpdateStatus } from './self-update.js';
 import {
   closeAllTranscripts,
   closeTranscript,
@@ -471,7 +472,20 @@ export function registerIpc(getWindow: () => BrowserWindow | null, env: HelmEnv)
   ipcMain.handle(IPC.UsageGet, () => readUsage());
   ipcMain.handle(IPC.ShellHookStatus, () => hookStatus());
   ipcMain.handle(IPC.ShellHookInstall, () => installHook());
-  ipcMain.handle(IPC.UpdateStatus, () => checkForUpdates());
+  ipcMain.handle(IPC.UpdateStatus, async () => {
+    const status = selfUpdateStatus();
+    // A dev run, or a machine whose updates come from the launchd job, has no
+    // self-updater; the old compare-only check still answers there.
+    if (!status.enabled) return checkForUpdates();
+    // Start a check without holding the reply for a build that takes minutes.
+    void checkNow();
+    return {
+      checked: true,
+      behind: status.staged && status.staged !== status.installed ? 1 : 0,
+      current: (status.installed ?? '').slice(0, 7),
+      message: status.message,
+    };
+  });
 
   ipcMain.on(IPC.RouteVocabulary, (_event, raw: unknown) => {
     if (!Array.isArray(raw)) return;

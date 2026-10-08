@@ -55,6 +55,9 @@ fi
 
 # ------------------------------------------------------------- install
 echo "==> installing to $APP_DEST"
+# A build staged by Helm's own updater is now older than this one. Clear it
+# before quitting Helm, or Helm's quit hook would copy it in over this install.
+rm -rf "$HOME/.helm/staged"
 if [ -d "$APP_DEST" ]; then
   # Quit a running copy first, or the replace leaves a half-written bundle.
   osascript -e 'tell application "Helm" to quit' >/dev/null 2>&1 || true
@@ -65,6 +68,23 @@ cp -R "$APP_SRC" "$APP_DEST"
 
 # The quarantine bit makes Gatekeeper refuse a self-signed build.
 xattr -dr com.apple.quarantine "$APP_DEST" 2>/dev/null || true
+
+# --------------------------------------------------------------- updates
+# Run by hand, this clone becomes the one Helm keeps itself current from: every
+# five minutes Helm fast-forwards it to GitHub's main (only when that cannot
+# touch your work), tests it, builds it, and installs it when you quit. No
+# second checkout, no background job. PATH is recorded because a Dock-launched
+# app has no node or pnpm on its own.
+#
+# Not when the launchd updater runs this (HELM_INSTALL_STEP is set): that
+# machine's updates belong to com.helm.update, and two updaters would race.
+if [ "$STEP" = all ]; then
+  mkdir -p "$HOME/.helm"
+  printf '%s\n' "$ROOT" > "$HOME/.helm/source-repo"
+  printf '%s\n' "$PATH" > "$HOME/.helm/build-path"
+  git -C "$ROOT" rev-parse HEAD > "$HOME/.helm/installed-sha" 2>/dev/null || true
+  echo "==> Helm will keep itself current from $ROOT"
+fi
 
 # --------------------------------------------------------------- env
 # A Dock-launched app starts inside /Applications and can never walk up to the
