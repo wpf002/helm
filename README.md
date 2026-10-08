@@ -118,7 +118,8 @@ that clone the one Helm follows, and from then on Helm keeps itself on GitHub's
   for you
 
 A commit that fails the tests is skipped until a newer one lands. Log:
-`~/.helm/update.log`. Turn it off with *Update automatically* in Preferences.
+`~/.helm/update.log`, which records every build, install, and the reason for
+any wait. Turn it off with *Update automatically* in Preferences.
 
 It runs inside Helm rather than as a background job because macOS will not let
 a launchd job read `~/Documents`, where the clone lives — tested, it fails with
