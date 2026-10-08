@@ -18,8 +18,6 @@ FAILED="$STATE/update-failed-sha" # last commit that failed the gate
 NOTIFIED="$STATE/update-notified-sha"
 CHECKED="$STATE/update-checked"    # when the last successful check ran
 BUILT="$STATE/update-built-sha"    # commit whose app is built, signed and ready to copy in
-RELEASED="$STATE/release-sha"      # commit whose signed app sits in the release dir; survives install
-MIRRORS="$STATE/mirrors"           # one user@host per line; see scripts/setup-mirror.sh
 WAIT_TICKS="${HELM_UPDATE_WAIT_TICKS:-90}" # 3s each: watch for a quit for most of the 5 minutes
 APP_BIN="/Applications/Helm.app/Contents/MacOS/Helm"
 
@@ -28,44 +26,6 @@ notify() { osascript -e "display notification \"$1\" with title \"Helm\"" >/dev/
 # Arguments are allowed after the path: a launch that passes any must still
 # count as running, or the update would quit Helm out from under you.
 helm_running() { pgrep -qf "^$APP_BIN( |$)"; }
-
-# Sends the signed build of $target to every mirror that does not have it yet.
-# Mirrors (the Mac Studio) have no toolchain; shipping the build rather than
-# building there keeps one signature everywhere, so a Full Disk Access grant
-# survives updates. A mirror that is asleep or off-tailnet is retried every
-# tick until it takes the build, independent of whether it is installed here.
-ship_pending() {
-  [ -s "$MIRRORS" ] || return 0
-  # The release dir holds $target if this script built it (RELEASED, BUILT) or
-  # installed it (STAMP) — nothing rebuilds it until a newer commit arrives.
-  # STAMP and BUILT cover a build made before RELEASED existed.
-  [ "$target" = "$(cat "$RELEASED" 2>/dev/null)" ] \
-    || [ "$target" = "$(cat "$BUILT" 2>/dev/null)" ] \
-    || [ "$target" = "$(cat "$STAMP" 2>/dev/null)" ] \
-    || return 0
-  local zip="$STATE/ship/$short.zip" host shipped
-  while IFS= read -r host; do
-    [ -n "$host" ] || continue
-    shipped="$STATE/shipped-${host//[^A-Za-z0-9._-]/_}"
-    [ "$target" = "$(cat "$shipped" 2>/dev/null)" ] && continue
-    if [ ! -f "$zip" ]; then
-      rm -rf "$STATE/ship" && mkdir -p "$STATE/ship"
-      ditto -c -k --sequesterRsrc --keepParent "$REPO/apps/desktop/release/mac-arm64/Helm.app" "$zip" \
-        || { log "could not package $short for mirrors"; return 0; }
-    fi
-    # Zip under a temporary name first, sha last: the receiver acts on the sha,
-    # so it can never see one whose zip is still arriving. ssh -n, or it eats
-    # the rest of the mirrors file from this loop's stdin.
-    if scp -q -o BatchMode=yes -o ConnectTimeout=10 "$zip" "$host:.helm/staged/Helm.zip.part" \
-      && ssh -n -o BatchMode=yes -o ConnectTimeout=10 "$host" \
-           "mv ~/.helm/staged/Helm.zip.part ~/.helm/staged/Helm.zip && echo $target > ~/.helm/staged/sha"; then
-      echo "$target" > "$shipped"
-      log "shipped $short to $host"
-    else
-      log "could not reach $host; will ship $short next tick"
-    fi
-  done < "$MIRRORS"
-}
 
 cd "$REPO" || { log "no checkout at $REPO"; exit 0; }
 
@@ -77,10 +37,6 @@ git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=20 fetch --quiet origin main
 date '+%F %T' > "$CHECKED"
 target=$(git rev-parse origin/main)
 short=${target[1,7]}
-
-# Before the early exits: this machine being current says nothing about the
-# mirrors, which may have been asleep when the build was made.
-ship_pending
 
 [ "$target" = "$(cat "$STAMP" 2>/dev/null)" ] && exit 0
 [ "$target" = "$(cat "$FAILED" 2>/dev/null)" ] && exit 0
@@ -105,9 +61,7 @@ if [ "$target" != "$(cat "$BUILT" 2>/dev/null)" ]; then
     exit 0
   fi
   echo "$target" > "$BUILT"
-  echo "$target" > "$RELEASED"
   log "built $short ($subject)"
-  ship_pending
 fi
 subject=$(git log -1 --format=%s "$target")
 
