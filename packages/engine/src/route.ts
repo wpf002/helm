@@ -91,6 +91,40 @@ function withoutQuoted(line: string): string {
   return line.replace(/'[^']*'/g, ' ').replace(/"[^"]*"/g, ' ');
 }
 
+/**
+ * Drops heredoc bodies. Everything between `<< 'EOF'` and `EOF` is data the
+ * command is being handed, exactly as a quoted argument is, and it is usually
+ * prose: a pasted `cat >> notes.md << 'EOF'` carrying a page of markdown was
+ * routed to the agent on the strength of a comma in the body, so a model
+ * retyped the paste instead of the shell writing it. `<<<` is a here-string
+ * and has no body. An unterminated heredoc runs to the end of the input, which
+ * is what the shell would do with it.
+ */
+function withoutHeredocBodies(text: string): string {
+  if (!text.includes('<<') || !text.includes('\n')) return text;
+  const lines = text.split('\n');
+  const kept: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i] ?? '';
+    kept.push(line);
+    i++;
+    const openers = line.matchAll(
+      /(?<!<)<<(?!<)(-?)\s*(?:'([^']+)'|"([^"]+)"|\\?([A-Za-z_][A-Za-z0-9_]*))/g,
+    );
+    for (const opener of openers) {
+      const stripTabs = opener[1] === '-';
+      const delimiter = opener[2] ?? opener[3] ?? opener[4] ?? '';
+      while (i < lines.length) {
+        const body = lines[i] ?? '';
+        i++;
+        if ((stripTabs ? body.replace(/^\t+/, '') : body) === delimiter) break;
+      }
+    }
+  }
+  return kept.join('\n');
+}
+
 /** Punctuation that reads as a sentence rather than an argument. */
 function sentencePunctuation(line: string): string[] {
   const seen: string[] = [];
@@ -126,6 +160,20 @@ export function routeInputWithFactors(
   line: string,
   pathBinaries: ReadonlySet<string>,
 ): { route: InputRoute; factors: Factor[] } {
+  return decide(line, pathBinaries, false);
+}
+
+/**
+ * `bodiesRemoved` is set on the one inner pass that judges a command with its
+ * heredoc bodies already taken out. Without it that pass would look for
+ * heredocs again, find the same opener with no terminator left under it, and
+ * swallow whatever followed the heredoc as a second body.
+ */
+function decide(
+  line: string,
+  pathBinaries: ReadonlySet<string>,
+  bodiesRemoved: boolean,
+): { route: InputRoute; factors: Factor[] } {
   const factors: Factor[] = [];
   const trimmed = line.trim();
 
@@ -142,6 +190,25 @@ export function routeInputWithFactors(
   if (trimmed.startsWith('?')) {
     factors.push({ rule: 'explicit-agent-prefix', detail: 'Line begins with ?.', effect: 'info' });
     return { route: { target: 'agent', prompt: trimmed.slice(1).trim() }, factors };
+  }
+
+  // A heredoc body is data. Decide on the command around it, then hand the
+  // original text back untouched: what was pasted is what must run.
+  const withoutBodies = bodiesRemoved ? trimmed : withoutHeredocBodies(trimmed);
+  if (withoutBodies !== trimmed) {
+    const decided = decide(withoutBodies, pathBinaries, true);
+    factors.push({
+      rule: 'heredoc-body-ignored',
+      detail: 'Heredoc contents are data for the command, so they were not read as prose.',
+      effect: 'info',
+    });
+    return {
+      route:
+        decided.route.target === 'shell'
+          ? { target: 'shell', command: trimmed }
+          : { target: 'agent', prompt: trimmed },
+      factors: [...factors, ...decided.factors],
+    };
   }
 
   // ---- rule 2: does it look like a command?

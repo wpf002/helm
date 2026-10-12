@@ -378,6 +378,27 @@ prompt. The shell hook now binds `^X^R` to a widget that accept-lines an empty
 buffer and only redraws a non-empty one. Verified across five rounds: the
 partial line survived every time and nothing ran.
 
+## Pasting
+
+What you paste is what runs, and what you see is what you pasted.
+
+- **A heredoc body is data.** `cat >> notes.md << 'EOF'` followed by a page of
+  markdown used to go to the agent, because the router read the body as prose
+  (one comma was enough), and a model retyped the paste. The router now drops
+  heredoc bodies before judging the command and hands the shell the original
+  text untouched.
+- **Multi-line commands go back to the shell as a bracketed paste**, the way
+  they arrived. Typed back a line at a time, every newline accepted the line so
+  far and every tab asked zsh for a completion. Verified against the built app:
+  a pasted heredoc with a tab, a four-space indent, `$HOME`, backticks and
+  blank lines produced a byte-identical file.
+- **The echo of a prompt is drawn line by line.** A bare LF moves a terminal
+  down a row without returning to the left edge, so a pasted block echoed as
+  one string started every line where the last one ended. Indentation is kept
+  and a wrapped line continues under its own indent.
+- Middle-click paste goes through xterm's paste, the path ⌘V takes, instead of
+  being written to the pty raw.
+
 ## Clearing
 
 `⌘K` clears; `⌘⇧K` resets. Both call `term.reset()` rather than `term.clear()`,

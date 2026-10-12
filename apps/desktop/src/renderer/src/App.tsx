@@ -27,6 +27,23 @@ function decodeBase64Utf8(data: string): string {
   return new TextDecoder().decode(bytes);
 }
 
+const PASTE_START = `${ESC}[200~`;
+const PASTE_END = `${ESC}[201~`;
+
+/**
+ * Hands a command back to the shell to run. One line is typed and accepted.
+ * Anything with a newline or a tab goes back as a bracketed paste, which is how
+ * it arrived: zsh then inserts it literally and runs it as one buffer. Typed
+ * instead, a heredoc is accepted a line at a time and a tab is a completion
+ * request, so the text that ran was not the text that was pasted. ^J accepts
+ * the line either way; ^M belongs to the widget that sent it here.
+ */
+function forShell(command: string): string {
+  if (!/[\n\t]/.test(command)) return command + '\n';
+  // A paste cannot be allowed to close its own bracket early.
+  return PASTE_START + command.split(PASTE_END).join('') + PASTE_END + '\n';
+}
+
 function displayCwd(cwd: string, home: string): string {
   if (home && cwd.startsWith(home)) return '~' + cwd.slice(home.length);
   return cwd;
@@ -131,7 +148,7 @@ export default function App(): JSX.Element {
     const submitLine = async (s: Session, line: string): Promise<void> => {
       const route = await window.helm.route.submit(line);
       if (route.target === 'shell') {
-        if (s.id) window.helm.pty.write(s.id, route.command + '\n');
+        if (s.id) window.helm.pty.write(s.id, forShell(route.command));
         return;
       }
       if (!route.prompt) return;
@@ -302,7 +319,10 @@ export default function App(): JSX.Element {
         void navigator.clipboard
           .readText()
           .then((text) => {
-            if (text && s.id) window.helm.pty.write(s.id, text);
+            // Through xterm's own paste, the same path ⌘V takes. Writing the
+            // clipboard to the pty raw typed it instead: every newline ran the
+            // line so far, and every tab asked zsh for a completion.
+            if (text && s.id) s.term.paste(text);
           })
           .catch(() => undefined);
       };

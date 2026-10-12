@@ -76,6 +76,37 @@ describe('AgentWriter', () => {
     }
   });
 
+  // A bare LF moves a terminal down a row without returning to the left edge,
+  // so a pasted block echoed as one string began every line where the last
+  // one ended.
+  it('echoes a pasted, multi-line prompt one row per line', () => {
+    const term = new FakeTerminal();
+    const writer = new AgentWriter(term as unknown as Terminal);
+    writer.echoPrompt('### Layout\n- Before adding\n    indented four\n\tindented by a tab\n\nlast line');
+    expect(term.out.replace(/\r\n/g, '')).not.toContain('\n');
+    expect(term.plain.filter((row) => row.length > 0)).toEqual([
+      '│ › ### Layout',
+      '│   - Before adding',
+      '│       indented four',
+      '│       indented by a tab',
+      '│',
+      '│   last line',
+    ]);
+  });
+
+  it('keeps a wrapped pasted line under its own indentation', () => {
+    const term = new FakeTerminal();
+    term.cols = 40;
+    const writer = new AgentWriter(term as unknown as Terminal);
+    writer.echoPrompt('    one two three four five six seven eight nine ten eleven');
+    const rows = term.plain.filter((row) => row.length > 0);
+    expect(rows.length).toBeGreaterThan(1);
+    for (const row of rows) {
+      expect(row.length).toBeLessThanOrEqual(40);
+      expect(row.slice(4)).toMatch(/^ {4}\S/);
+    }
+  });
+
   it('names the tool on its closing line when tools finish out of order', () => {
     const text = render([
       { kind: 'tool_start', sessionId: S, toolId: 'a', toolName: 'Read', input: { file_path: '/Users/willfoti/notes.md' } },

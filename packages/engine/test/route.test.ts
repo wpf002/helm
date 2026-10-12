@@ -116,6 +116,57 @@ describe('routeInput', () => {
     }
   });
 
+  describe('pasted, multi-line input', () => {
+    const bins = new Set(['mkdir', 'cat', 'tee', 'python3']);
+    const body =
+      '## UI and Copy Rules (All Projects)\n\n' +
+      "- Never ship the default AI look: no gradients, no glassmorphism by default.\n" +
+      "- Before adding any new element, look at the existing layout. Don't append another card.";
+
+    // The regression: a comma in the heredoc body read as prose, so a model
+    // retyped the paste instead of the shell writing it.
+    it('runs a heredoc in the shell however much prose its body holds', () => {
+      const pasted = `mkdir -p ~/.claude && cat >> ~/.claude/CLAUDE.md << 'EOF'\n\n${body}\nEOF`;
+      const { route, factors } = routeInputWithFactors(pasted, bins);
+      expect(route.target).toBe('shell');
+      expect(factors.map((f) => f.rule)).toContain('heredoc-body-ignored');
+    });
+
+    it('hands the shell the pasted text unchanged', () => {
+      const pasted = `cat > notes.md << 'EOF'\n\tindented with a tab\n    and with spaces, too\n\nEOF`;
+      const { route } = routeInputWithFactors(pasted, bins);
+      expect(route).toEqual({ target: 'shell', command: pasted });
+    });
+
+    it.each([
+      ['unquoted delimiter', `cat << EOF\n${body}\nEOF`],
+      ['double-quoted delimiter', `cat << "END"\n${body}\nEND`],
+      ['tab-stripping form', `cat <<-EOF\n\t${body}\n\tEOF`],
+      ['no terminator yet', `cat << 'EOF'\n${body}`],
+      ['command after the body', `cat << 'EOF' | tee out.md\n${body}\nEOF\ncat out.md`],
+    ])('covers the %s', (_name, pasted) => {
+      expect(routeInputWithFactors(pasted, bins).route.target).toBe('shell');
+    });
+
+    it('still reads prose after the heredoc has closed', () => {
+      const pasted = `cat << 'EOF'\nx\nEOF\nwhy, exactly, does that work?`;
+      expect(routeInputWithFactors(pasted, bins).route.target).toBe('agent');
+    });
+
+    it('does not mistake a here-string for a heredoc', () => {
+      // <<< has no body, so the next line is still command text to be judged.
+      const pasted = 'python3 <<< "print(1)"\nwhy, exactly, does that work?';
+      expect(routeInputWithFactors(pasted, bins).factors.map((f) => f.rule)).not.toContain(
+        'heredoc-body-ignored',
+      );
+    });
+
+    it('sends pasted prose to the agent with its line breaks intact', () => {
+      const pasted = 'Here are my notes from the meeting.\n\nFirst, the budget.\n  - indented point';
+      expect(routeInputWithFactors(pasted, bins).route).toEqual({ target: 'agent', prompt: pasted });
+    });
+  });
+
   it('routes an empty line to the agent without throwing', () => {
     expect(routeInputWithFactors('   ', new Set()).route.target).toBe('agent');
   });

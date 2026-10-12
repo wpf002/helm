@@ -325,8 +325,28 @@ export class AgentWriter {
   /** Re-renders the submitted prompt when the shell's line editor cleared it. */
   echoPrompt(text: string): void {
     this.closeLine();
-    const lines = wrapPlain(text, this.width - 2);
-    lines.forEach((line, i) => this.row(`${PALETTE.prompt}${i === 0 ? '›' : ' '} ${line}`));
+    // Line by line, never as one string. wrapPlain only breaks on width, so a
+    // pasted block kept its newlines inside each wrapped piece, and a bare LF
+    // moves the terminal down a row without returning to the left edge: every
+    // pasted line began where the last one ended. Each line is wrapped on its
+    // own, its indentation kept, and a wrapped continuation hangs under it.
+    let first = true;
+    for (const raw of text.replace(/\r\n?/g, '\n').split('\n')) {
+      const line = raw.replace(/\t/g, '    ').trimEnd();
+      const indent = /^ */.exec(line)?.[0] ?? '';
+      const pieces = wrapPlain(line.slice(indent.length), Math.max(8, this.width - 2 - indent.length));
+      for (const piece of pieces) {
+        // A blank line stays a bare gutter row, so text copied back out of the
+        // terminal does not pick up trailing spaces the paste never had.
+        if (!first && indent.length + piece.length === 0) {
+          const lead = this.cursorColumn() > 0 ? '\r\n' : '';
+          this.raw(`${lead}${PALETTE.gutter}│${RESET}\r\n`);
+          continue;
+        }
+        this.row(`${PALETTE.prompt}${first ? '›' : ' '} ${indent}${piece}`);
+        first = false;
+      }
+    }
     this.streaming = true;
     this.wroteSinceGap = false;
     this.freshBlock = true;
