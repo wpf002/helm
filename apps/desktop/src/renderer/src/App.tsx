@@ -27,6 +27,11 @@ function decodeBase64Utf8(data: string): string {
   return new TextDecoder().decode(bytes);
 }
 
+/** What a prompt being typed into Helm's own line editor is drawn behind. */
+const COMPOSE_GUTTER = `${ESC}[38;5;68m│ ${ESC}[38;5;110m`;
+/** A pasted tab is kept in the prompt and drawn as this. */
+const COMPOSE_TAB = '    ';
+
 const PASTE_START = `${ESC}[200~`;
 const PASTE_END = `${ESC}[201~`;
 
@@ -254,9 +259,28 @@ export default function App(): JSX.Element {
           }
         };
 
-        for (const char of data) {
+        // A keystroke arrives alone; anything longer came from the clipboard.
+        // While a prompt is being composed here (no shell integration, so
+        // Helm is the line editor), a pasted line break belongs to the prompt.
+        // Treated as Enter, it sent the first line to the agent and typed the
+        // rest of the paste into the shell as commands.
+        const pasted = data.length > 1;
+        // zsh asks for pastes to be bracketed. The brackets are for the shell;
+        // left in, `[200~` became the first characters of the prompt.
+        const chunk =
+          s.compose !== null && pasted
+            ? data.split(PASTE_START).join('').split(PASTE_END).join('')
+            : data;
+
+        for (const char of chunk) {
           if (s.compose !== null) {
-            if (char === '\r' || char === '\n') {
+            if (pasted && (char === '\r' || char === '\n')) {
+              s.compose += '\n';
+              s.term.write(`\r\n${COMPOSE_GUTTER}`);
+            } else if (pasted && char === '\t') {
+              s.compose += '\t';
+              s.term.write(COMPOSE_TAB);
+            } else if (char === '\r' || char === '\n') {
               s.term.write('\r\n');
               const text = s.compose;
               s.compose = null;
@@ -269,7 +293,14 @@ export default function App(): JSX.Element {
                 window.helm.agent.prompt(text);
               }
             } else if (char === BACKSPACE) {
-              if (s.compose.length > 0) {
+              const last = s.compose.slice(-1);
+              // Stops at a pasted line break: the cursor cannot be put back at
+              // the end of the row above without knowing how it wrapped. ^C
+              // discards the whole prompt.
+              if (last === '\t') {
+                s.compose = s.compose.slice(0, -1);
+                s.term.write('\b \b'.repeat(COMPOSE_TAB.length));
+              } else if (last !== '' && last !== '\n') {
                 s.compose = s.compose.slice(0, -1);
                 s.term.write('\b \b');
               }
@@ -289,7 +320,7 @@ export default function App(): JSX.Element {
             if (char === '?') {
               flush();
               s.compose = '';
-              s.term.write(`${ESC}[38;5;68m│ ${ESC}[38;5;110m`);
+              s.term.write(COMPOSE_GUTTER);
               continue;
             }
             if (char === '$') {

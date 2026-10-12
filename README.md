@@ -397,7 +397,16 @@ What you paste is what runs, and what you see is what you pasted.
   one string started every line where the last one ended. Indentation is kept
   and a wrapped line continues under its own indent.
 - Middle-click paste goes through xterm's paste, the path ⌘V takes, instead of
-  being written to the pty raw.
+  being written to the pty raw. Verified live: nothing runs until Enter, and
+  the heredoc it pasted wrote a byte-identical file.
+- **Without the shell integration**, Helm is the line editor for a `?` prompt,
+  and a pasted line break used to count as Enter: the first line went to the
+  agent and the rest of the paste was typed into the shell as commands. A
+  chunk longer than one character is a paste, so its line breaks and tabs stay
+  in the prompt, and zsh's paste brackets are removed instead of becoming
+  `[200~` at the start of it. Verified under zsh with no rc file and under
+  bash 3.2, which does not bracket: one submission, on Enter, with the exact
+  text. Backspace stops at a pasted line break; ^C discards the prompt.
 
 ## Clearing
 
