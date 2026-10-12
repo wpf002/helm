@@ -15,7 +15,7 @@
 // one arrives.
 
 import { execFile, spawn } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -124,6 +124,15 @@ function step(repo: string, command: string, env: NodeJS.ProcessEnv = childEnv()
 }
 
 /**
+ * Removes the staged build with rm, never fs.rmSync. Inside Electron, fs treats
+ * an .asar file as a directory, so a recursive rmSync walks into
+ * Helm.app/Contents/Resources/app.asar and dies with ENOTDIR. That made a
+ * staged build impossible to replace: with one update waiting for a quit, every
+ * newer commit was built and then thrown away at this step, every five minutes.
+ */
+const clearStaged = (repo: string): Promise<boolean> => step(repo, `rm -rf "${STAGED_DIR}"`);
+
+/**
  * Moves your clone to origin/main if, and only if, nothing of yours is in the
  * way. Returns the reason it did not, or null when the clone is at target.
  */
@@ -192,12 +201,13 @@ async function check(): Promise<void> {
 
     // Staged outside ~/Documents, so installing it after Helm quits needs no
     // access to the clone.
-    rmSync(STAGED_DIR, { recursive: true, force: true });
-    mkdirSync(STAGED_DIR, { recursive: true });
     const built = join(repo, 'apps', 'desktop', 'release', 'mac-arm64', 'Helm.app');
-    if (!(await step(repo, `ditto "${built}" "${STAGED_APP}"`))) {
+    if (
+      !(await clearStaged(repo)) ||
+      !(await step(repo, `mkdir -p "${STAGED_DIR}" && ditto "${built}" "${STAGED_APP}"`))
+    ) {
       log(`could not stage ${short}; will rebuild next check`);
-      rmSync(STAGED_DIR, { recursive: true, force: true });
+      await clearStaged(repo);
       return;
     }
     writeFileSync(STAGED_SHA, target);
